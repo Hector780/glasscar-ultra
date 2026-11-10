@@ -75,28 +75,28 @@ data class Shortcut(
 /** Dock lateral: Mapas, Música, Teléfono, Telemetría/OBD. */
 val DockShortcuts = listOf(
     Shortcut(
-        "Mapas", iconResName = "icon_maps", Glyph.Map,
+        "Mapas", Glyph.Map,
         listOf("com.google.android.apps.maps", "com.waze"),
         listOf("maps", "mapa", "navi"),
-        colors = Squircle.Maps
+        colors = Squircle.Maps, iconResName = "icon_maps"
     ),
     Shortcut(
-        "Música", iconResName = "icon_music", Glyph.Note,
+        "Música", Glyph.Note,
         listOf("com.spotify.music", "com.google.android.apps.youtube.music", "com.ts.music", "com.tw.music"),
         listOf("music", "música", "musica", "spotify"),
-        colors = Squircle.Music
+        colors = Squircle.Music, iconResName = "icon_music"
     ),
     Shortcut(
-        "Teléfono", iconResName = "icon_phone", Glyph.Phone,
+        "Teléfono", Glyph.Phone,
         listOf("com.ts.bt", "com.tw.bt", "com.syu.bt", "com.android.dialer", "com.google.android.dialer"),
         listOf("phone", "teléfono", "telefono", "bluetooth", "dial", "bt"),
-        colors = Squircle.Phone
+        colors = Squircle.Phone, iconResName = "icon_phone"
     ),
     Shortcut(
-        "OBD", iconResName = "icon_obd", Glyph.Gauge,
+        "OBD", Glyph.Gauge,
         listOf("org.prowl.torque", "org.prowl.torquefree", "com.ovz.carscanner", "com.ts.can"),
         listOf("obd", "torque", "scanner", "telemetr", "car info", "vehículo"),
-        colors = Squircle.Telemetry
+        colors = Squircle.Telemetry, iconResName = "icon_obd"
     )
 )
 
