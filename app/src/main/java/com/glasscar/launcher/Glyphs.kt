@@ -35,9 +35,13 @@ fun DrawScope.drawGlyph(glyph: Glyph, brush: Brush) {
     val ox = (size.width - 24f * s) / 2f
     val oy = (size.height - 24f * s) / 2f
     fun p(x: Float, y: Float) = Offset(ox + x * s, oy + y * s)
-    fun poly(vararg pts: Offset, closed: Boolean = true) = Path().apply {
-        moveTo(pts[0].x, pts[0].y)
-        for (i in 1 until pts.size) lineTo(pts[i].x, pts[i].y)
+    fun poly(vararg pts: Any, closed: Boolean = true) = Path().apply {
+        val first = pts[0] as Offset
+        moveTo(first.x, first.y)
+        for (i in 1 until pts.size) {
+            val point = pts[i] as Offset
+            lineTo(point.x, point.y)
+        }
         if (closed) close()
     }
     val stroke = Stroke(width = 2f * s, cap = StrokeCap.Round, join = StrokeJoin.Round)
