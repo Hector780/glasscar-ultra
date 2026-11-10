@@ -1,0 +1,39 @@
+CATÁLOGO EXTENDIDO DE 26 ÍCONOS DE https://macosicons.com/ (en minúsculas, formato .png):
+
+--- NAVEGACIÓN Y MAPAS ---
+1.  icon_maps.png        -> Apple Maps / Google Maps
+2.  icon_waze.png        -> Waze
+
+--- MÚSICA Y AUDIO ---
+3.  icon_music.png       -> Apple Music / Reproductor de Música local
+4.  icon_spotify.png     -> Spotify
+5.  icon_ytmusic.png     -> YouTube Music
+6.  icon_radio.png       -> Radio FM del autoestéreo
+7.  icon_eq.png          -> Ecualizador DSP / Audio Midi Setup
+
+--- VIDEO Y ENTRETENIMIENTO ---
+8.  icon_youtube.png     -> YouTube
+9.  icon_netflix.png     -> Netflix
+10. icon_prime.png       -> Prime Video
+11. icon_disney.png      -> Disney+
+12. icon_vlc.png         -> VLC / Reproductor de Video local
+
+--- COMUNICACIÓN Y CONECTIVIDAD ---
+13. icon_phone.png       -> Teléfono / Bluetooth Dialer / FaceTime
+14. icon_contacts.png    -> Contactos
+15. icon_whatsapp.png    -> WhatsApp
+16. icon_telegram.png    -> Telegram
+17. icon_carplay.png     -> ZLink / TLink / CarPlay / Android Auto
+
+--- VEHÍCULO, CÁMARAS Y UTILIDADES ---
+18. icon_obd.png         -> Torque / Car Scanner / OBD2 / Activity Monitor
+19. icon_camera.png      -> Cámara DVR / Cámara Frontal / Auxiliar
+20. icon_settings.png    -> Ajustes / System Settings
+21. icon_chrome.png      -> Google Chrome / Safari / Navegador
+22. icon_files.png       -> Finder / Gestor de Archivos
+23. icon_playstore.png   -> App Store / Google Play Store
+24. icon_weather.png     -> Clima / Weather
+25. icon_calculator.png  -> Calculadora
+26. icon_gallery.png     -> Fotos / Galería
+
+Todos los íconos que coloques en esta carpeta vestirán automáticamente el Dock, el Widget de Accesos Rápidos y el Cajón de Aplicaciones (AppDrawer).
