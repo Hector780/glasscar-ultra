@@ -68,4 +68,3 @@ fun resolveApp(apps: List<AppEntry>, config: LauncherConfig, slot: String, short
 fun recentApps(apps: List<AppEntry>, config: LauncherConfig): List<AppEntry> =
     config.recent.mapNotNull { key -> apps.firstOrNull { it.componentKey == key } }
         .distinctBy { it.packageName }.take(4)
-
