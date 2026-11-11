@@ -181,12 +181,17 @@ fun DrawScope.drawGlyph(glyph: Glyph, brush: Brush) {
 fun WeatherGlyph(code: Int?, modifier: Modifier = Modifier) {
     Canvas(modifier) {
         val s = size.minDimension / 24f
+        if (code == null) {
+            drawLine(Color(0xFF94A3B8), Offset(6f * s, 12f * s), Offset(18f * s, 12f * s),
+                strokeWidth = 2f * s, cap = StrokeCap.Round)
+            return@Canvas
+        }
         val sunBrush = Brush.linearGradient(
             listOf(Ultra.Yellow, Color(0xFFFF9F0A)),
             start = Offset.Zero, end = Offset(size.width, size.height)
         )
         val cloudBrush = Brush.verticalGradient(listOf(Color(0xFFEAF7FF), Ultra.Cyan))
-        val c = code ?: 0
+        val c = code
         val cloudy = c != 0
         val sunny = c <= 3
         val rain = c >= 51
@@ -217,3 +222,4 @@ fun WeatherGlyph(code: Int?, modifier: Modifier = Modifier) {
         }
     }
 }
+

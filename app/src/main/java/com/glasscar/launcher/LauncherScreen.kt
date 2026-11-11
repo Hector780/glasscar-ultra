@@ -1,6 +1,21 @@
 package com.glasscar.launcher
 
 import android.os.SystemClock
+import android.appwidget.AppWidgetHost
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import kotlinx.coroutines.launch
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
@@ -93,6 +108,15 @@ import kotlin.math.sin
 interface LauncherActions {
     fun open(app: AppEntry)
     fun open(shortcut: Shortcut, apps: List<AppEntry>)
+    fun openSlot(slot: String, shortcut: Shortcut, apps: List<AppEntry>) { open(shortcut, apps) }
+    fun openNativeControls() {}
+    fun requestCamera() {}
+    fun requestBluetooth() {}
+    fun openUsageAccess() {}
+    fun findWeatherApp() {}
+    fun chooseWidget(slot: String) {}
+    fun removeWidget(slot: String) {}
+    fun widgetHost(): AppWidgetHost? = null
     fun openPackage(packageName: String)
     fun openNotificationAccess()
     fun setVolume(fraction: Float)
@@ -112,6 +136,7 @@ private val AccentReverse = Accent(Ultra.Amber, Color(0xFFFF453A))
 //  Raíz
 // =====================================================================
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun LauncherRoot(
     apps: List<AppEntry>,
@@ -122,9 +147,28 @@ fun LauncherRoot(
     showDrawer: Boolean,
     onToggleDrawer: () -> Unit,
     onCloseDrawer: () -> Unit,
-    actions: LauncherActions
+    actions: LauncherActions,
+    preferences: LauncherPreferences? = null,
+    permissionVersion: Int = 0
 ) {
     val context = LocalContext.current
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val prefs = preferences ?: remember { LauncherPreferences(context) }
+    val config by prefs.state.collectAsState()
+    val scope = rememberCoroutineScope()
+    var sheet by rememberSaveable { mutableStateOf<String?>(null) }
+    val configure: (String) -> Unit = { sheet = it }
+    val pager = rememberPagerState(pageCount = { 4 })
+    var carPlayOpened by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(pager.settledPage, apps.isNotEmpty(), config.assignments["carplay"], config.widgets["carplay"]) {
+        if (pager.settledPage != 1) carPlayOpened = false
+        else if (!carPlayOpened && config.widgets["carplay"] == null) {
+            if (resolveApp(apps, config, "carplay", QuickShortcuts[6]) != null) {
+                carPlayOpened = true
+                actions.openSlot("carplay", QuickShortcuts[6], apps)
+            }
+        }
+    }
     val realDrive by driveFlow.collectAsState()
     val realMedia by mediaFlow.collectAsState()
     val can by canFlow.collectAsState()
@@ -132,13 +176,12 @@ fun LauncherRoot(
 
     var now by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     val demoStart = remember { SystemClock.elapsedRealtime() }
-    LaunchedEffect(Unit) {
-        while (true) {
-            now = SystemClock.elapsedRealtime()
-            delay(if (DEMO_MODE) 250L else 500L)
+    LaunchedEffect(lifecycle) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) { now = SystemClock.elapsedRealtime(); delay(if (DEMO_MODE) 250L else 500L) }
         }
     }
-    val drive = if (DEMO_MODE) Demo.drive(now) else realDrive
+    val drive = if (DEMO_MODE) Demo.drive(now) else realDrive.copy(hasFix = realDrive.isFresh(now))
     val media = if (DEMO_MODE) Demo.media(demoStart) else realMedia
     val weather = if (DEMO_MODE) Demo.weather else realWeather
 
@@ -152,117 +195,87 @@ fun LauncherRoot(
     val gear = resolveGear(manualGear, can, speed.kmh, now)
 
     // ---------- Clima ----------
-    val latKey = drive.lat?.let { (it * 10).roundToInt() }
-    val lonKey = drive.lon?.let { (it * 10).roundToInt() }
-    LaunchedEffect(latKey, lonKey) {
-        val lat = drive.lat
-        val lon = drive.lon
-        if (DEMO_MODE || lat == null || lon == null) return@LaunchedEffect
-        while (true) {
-            weatherSource.refresh(lat, lon)
-            delay(60_000L)
+    val currentDrive by rememberUpdatedState(drive)
+    LaunchedEffect(lifecycle, drive.lat != null && drive.lon != null) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (!DEMO_MODE) {
+                val latest = currentDrive
+                if (latest.lat != null && latest.lon != null) weatherSource.refresh(latest.lat, latest.lon)
+                delay(60_000L)
+            }
         }
     }
 
     // ---------- Estado del dispositivo ----------
     var status by remember { mutableStateOf(if (DEMO_MODE) Demo.status else DeviceStatus()) }
     if (!DEMO_MODE) {
-        LaunchedEffect(Unit) {
-            while (true) {
-                status = withContext(Dispatchers.Default) { readDeviceStatus(context) }
-                delay(3000L)
+        LaunchedEffect(lifecycle) {
+            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                while (true) {
+                    status = withContext(Dispatchers.Default) { readDeviceStatus(context) }
+                    delay(1000L)
+                }
             }
         }
     }
 
-    var night by rememberSaveable { mutableStateOf(true) }
+    val night = config.night
     // Si el módulo CANbus RP5-FD-002 reporta cambio en las luces (ILL) de la Escape, ajusta automático
     LaunchedEffect(can.lightsOn) {
-        can.lightsOn?.let { night = it }
+        can.lightsOn?.let { prefs.setNight(it) }
     }
 
     val palette = animatedPalette(night)
     var rootSize by remember { mutableStateOf(Size.Zero) }
-    var activeDock by remember { mutableIntStateOf(-1) }
 
-    BackHandler(enabled = showDrawer) { onCloseDrawer() }
 
+    BackHandler(enabled = sheet != null || showDrawer || pager.currentPage != 0) {
+        when { sheet != null -> sheet = null; showDrawer -> onCloseDrawer(); else -> scope.launch { pager.animateScrollToPage(0) } }
+    }
     CompositionLocalProvider(LocalBackdrop provides Backdrop(rootSize, palette)) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .onSizeChanged { rootSize = Size(it.width.toFloat(), it.height.toFloat()) }
-                .drawBehind { drawSpaceBackground(palette, size) }
-        ) {
-            Row(
-                Modifier
-                    .fillMaxSize()
-                    .padding(18.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                SpatialDock(
-                    status = status,
-                    hasFix = drive.hasFix,
-                    active = activeDock,
-                    drawerOpen = showDrawer,
-                    onDock = { i ->
-                        activeDock = i
-                        onCloseDrawer()
-                        actions.open(DockShortcuts[i], apps)
-                    },
-                    onGrid = onToggleDrawer,
-                    modifier = Modifier
-                        .width(78.dp)
-                        .fillMaxHeight()
-                )
-                Column(
-                    Modifier
-                        .weight(1f)
-                        .fillMaxHeight(),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    AnimatedContent(
-                        targetState = showDrawer,
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth(),
-                        transitionSpec = {
-                            (fadeIn(tween(280)) + scaleIn(initialScale = 0.94f, animationSpec = tween(280)))
-                                .togetherWith(fadeOut(tween(180)))
-                        },
-                        label = "center"
-                    ) { drawer ->
-                        if (drawer) {
-                            AppDrawer(apps) { app ->
-                                actions.open(app)
-                                onCloseDrawer()
-                            }
-                        } else {
-                            Dashboard(
-                                drive = drive,
-                                speed = speed,
-                                gear = gear,
-                                gearIsManual = manualGear != null,
-                                onGearSelected = { manualGear = it },
-                                onGearAuto = { manualGear = null },
-                                media = media,
-                                weather = weather,
-                                apps = apps,
-                                status = status,
-                                actions = actions
-                            )
+        Box(Modifier.fillMaxSize().onSizeChanged { rootSize = Size(it.width.toFloat(), it.height.toFloat()) }
+            .drawBehind { drawSpaceBackground(palette, size) }
+            .pointerInput(showDrawer) {
+                if (!showDrawer) {
+                    var distance = 0f
+                    detectVerticalDragGestures(onDragStart = { distance = 0f }, onDragEnd = {
+                        if (kotlin.math.abs(distance) > 64.dp.toPx()) onToggleDrawer()
+                    }) { _, amount -> distance += amount }
+                }
+            }) {
+            Row(Modifier.fillMaxSize().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                SpatialDock(status, drive.hasFix, apps, config, actions, onToggleDrawer, configure,
+                    Modifier.width(84.dp).fillMaxHeight())
+                Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(Modifier.fillMaxWidth().height(42.dp), verticalAlignment = Alignment.CenterVertically) {
+                        listOf("Tablero", "CarPlay", "Cámara", "Instrumentos").forEachIndexed { index, name ->
+                            Box(Modifier.weight(1f).clip(RoundedCornerShape(18.dp))
+                                .background(if (!showDrawer && pager.currentPage == index) palette.pillFill else Color.Transparent)
+                                .bounceClick { onCloseDrawer(); scope.launch { pager.animateScrollToPage(index) } }
+                                .padding(vertical = 10.dp), contentAlignment = Alignment.Center) { Txt(name, 14.sp, FontWeight.SemiBold) }
                         }
                     }
-                    QuickControlBar(
-                        status = status,
-                        night = night,
-                        onNight = { night = !night },
-                        actions = actions,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp)
-                    )
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                        if (showDrawer) AppDrawer(apps) { actions.open(it); onCloseDrawer() }
+                        else HorizontalPager(pager, Modifier.fillMaxSize(), beyondBoundsPageCount = 0) { page ->
+                            when (page) {
+                                0 -> Dashboard(drive, speed, gear, manualGear != null, { manualGear = it }, { manualGear = null },
+                                    media, weather, apps, status, actions, config, configure, can, permissionVersion)
+                                1 -> CarPlayPanel(config, apps, actions, configure, Modifier.fillMaxSize())
+                                2 -> if (pager.settledPage == 2) CameraPanel(config, apps, actions, configure, permissionVersion, Modifier.fillMaxSize())
+                                3 -> ClusterCard(drive, speed, gear, manualGear != null, { manualGear = it }, { manualGear = null },
+                                    apps, actions, Modifier.fillMaxSize())
+                            }
+                        }
+                    }
+                    QuickControlBar(status, night, { prefs.setNight(!night) }, actions,
+                        Modifier.fillMaxWidth().height(58.dp), config.nativeAudio)
                 }
+            }
+            sheet?.let { selected ->
+                LauncherSheet(selected, apps, config, prefs, drive, weather, status, can, actions,
+                    onDismiss = { sheet = null }, onChoose = configure,
+                    onRefreshWeather = { scope.launch { drive.lat?.let { lat -> drive.lon?.let { lon -> weatherSource.refresh(lat, lon, true) } } } })
             }
         }
     }
@@ -287,7 +300,7 @@ private fun animatedPalette(night: Boolean): SpacePalette {
 // =====================================================================
 
 @Composable
-private fun Txt(
+internal fun Txt(
     text: String,
     size: TextUnit,
     weight: FontWeight = FontWeight.Normal,
@@ -317,50 +330,45 @@ private fun Txt(
 //  A) Dock espacial con squircles
 // =====================================================================
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun SpatialDock(
-    status: DeviceStatus,
-    hasFix: Boolean,
-    active: Int,
-    drawerOpen: Boolean,
-    onDock: (Int) -> Unit,
-    onGrid: () -> Unit,
-    modifier: Modifier
-) {
-    SpatialGlassSurface(modifier, cornerRadius = 39.dp) {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(vertical = 22.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
+private fun SpatialDock(status: DeviceStatus, hasFix: Boolean, apps: List<AppEntry>, config: LauncherConfig,
+    actions: LauncherActions, onGrid: () -> Unit, configure: (String) -> Unit, modifier: Modifier) {
+    val recents = recentApps(apps, config)
+    val slots = listOf("maps", "music", "phone", "obd")
+    val defaultApps = DockShortcuts.mapIndexedNotNull { i, shortcut -> resolveApp(apps, config, slots[i], shortcut) }
+    val shown = (recents + defaultApps).distinctBy { it.packageName }.take(4)
+    SpatialGlassSurface(modifier, cornerRadius = 30.dp) {
+        Column(Modifier.fillMaxSize().padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             ClockText()
-            Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                StatusIcon(Glyph.Wifi, status.wifi)
-                StatusIcon(Glyph.Bluetooth, status.bluetooth)
-                StatusIcon(Glyph.Navigation, hasFix)
+            Row(Modifier.height(40.dp).bounceClick { configure("status") }, horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                StatusIcon(Glyph.Wifi, status.wifi); StatusIcon(Glyph.Bluetooth, status.bluetooth); StatusIcon(Glyph.Navigation, hasFix)
             }
-
             Spacer(Modifier.weight(1f))
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(22.dp)) {
-                DockShortcuts.forEachIndexed { i, shortcut ->
-                    DockButton(shortcut, active = i == active && !drawerOpen) { onDock(i) }
+            if (shown.isEmpty()) DockShortcuts.forEachIndexed { i, shortcut ->
+                Box(Modifier.height(62.dp).fillMaxWidth().combinedClickable(onClick = { actions.openSlot(slots[i], shortcut, apps) },
+                    onLongClick = { configure(slots[i]) }), contentAlignment = Alignment.Center) {
+                    AppSquircleIcon(shortcut.glyph, shortcut.colors, 46.dp, iconResName = shortcut.iconResName)
+                }
+            } else shown.forEach { app ->
+                Box(Modifier.height(62.dp).fillMaxWidth().combinedClickable(onClick = { actions.open(app) },
+                    onLongClick = { configure("settings") }).semantics { contentDescription = "Reciente: ${app.label}" }, contentAlignment = Alignment.Center) {
+                    AppIcon(app, Modifier.size(48.dp))
                 }
             }
             Spacer(Modifier.weight(1f))
-
-            Box(
-                Modifier
-                    .size(48.dp)
-                    .bounceClick(onClick = onGrid)
-                    .spatialGlass(CircleShape, fill = if (drawerOpen) Color(0x40FFFFFF) else Color(0x24FFFFFF)),
-                contentAlignment = Alignment.Center
-            ) {
-                GlyphIcon(Glyph.Grid, Modifier.size(20.dp))
-            }
+            Box(Modifier.size(46.dp).bounceClick { configure("settings") }, contentAlignment = Alignment.Center) { GlyphIcon(Glyph.Gear, Modifier.size(24.dp), LocalBackdrop.current.palette.textPrimary) }
+            Box(Modifier.size(48.dp).bounceClick(onClick = onGrid).semantics { contentDescription = "Abrir aplicaciones" }
+                .spatialGlass(CircleShape), contentAlignment = Alignment.Center) { GlyphIcon(Glyph.Grid, Modifier.size(24.dp), LocalBackdrop.current.palette.textPrimary) }
         }
     }
+}
+
+@Composable
+internal fun AppIcon(app: AppEntry, modifier: Modifier) {
+    val night = LocalBackdrop.current.palette.night
+    Image((if (night) app.iconDark else app.iconLight) ?: app.icon, app.label, modifier, contentScale = ContentScale.Fit)
 }
 
 @Composable
@@ -378,7 +386,7 @@ private fun ClockText() {
 
 @Composable
 private fun StatusIcon(glyph: Glyph, on: Boolean) {
-    GlyphIcon(glyph, Modifier.size(12.dp), tint = if (on) Ultra.Secondary else Color(0x33EBEBF5))
+    GlyphIcon(glyph, Modifier.size(18.dp), tint = if (on) (if (LocalBackdrop.current.palette.night) Ultra.Cyan else Color(0xFF0067A0)) else LocalBackdrop.current.palette.textSecondary.copy(alpha = 0.4f))
 }
 
 @Composable
@@ -415,63 +423,32 @@ private fun DockButton(shortcut: Shortcut, active: Boolean, onClick: () -> Unit)
 // =====================================================================
 
 @Composable
-private fun Dashboard(
-    drive: DriveState,
-    speed: ResolvedSpeed,
-    gear: Gear,
-    gearIsManual: Boolean,
-    onGearSelected: (Gear) -> Unit,
-    onGearAuto: () -> Unit,
-    media: MediaInfo,
-    weather: WeatherInfo,
-    apps: List<AppEntry>,
-    status: DeviceStatus,
-    actions: LauncherActions
-) {
-    Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        ClusterCard(
-            drive = drive,
-            speed = speed,
-            gear = gear,
-            gearIsManual = gearIsManual,
-            onGearSelected = onGearSelected,
-            onGearAuto = onGearAuto,
-            apps = apps,
-            actions = actions,
-            modifier = Modifier
-                .weight(0.46f)
-                .fillMaxHeight()
-        )
-        Column(
-            Modifier
-                .weight(0.54f)
-                .fillMaxHeight(),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            NowPlayingCard(
-                media, apps, actions,
-                Modifier
-                    .weight(0.56f)
-                    .fillMaxWidth()
-            )
-            Row(
-                Modifier
-                    .weight(0.44f)
-                    .fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                WeatherWidget(
-                    weather, drive,
-                    Modifier
-                        .weight(0.5f)
-                        .fillMaxHeight()
-                )
-                QuickAppsWidget(
-                    apps, status, actions,
-                    Modifier
-                        .weight(0.5f)
-                        .fillMaxHeight()
-                )
+private fun Dashboard(drive: DriveState, speed: ResolvedSpeed, gear: Gear, gearIsManual: Boolean,
+    onGearSelected: (Gear) -> Unit, onGearAuto: () -> Unit, media: MediaInfo, weather: WeatherInfo,
+    apps: List<AppEntry>, status: DeviceStatus, actions: LauncherActions,
+    config: LauncherConfig = LauncherConfig(), configure: (String) -> Unit = {}, can: CanState = CanState(), permissionVersion: Int = 0) {
+    Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.weight(0.55f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (config.dashboardCamera) CameraPanel(config, apps, actions, configure, permissionVersion, Modifier.weight(1f).fillMaxWidth())
+            else NavigationPanel(drive, config, apps, actions, configure, Modifier.weight(1f).fillMaxWidth())
+            SpatialGlassSurface(Modifier.fillMaxWidth().height(72.dp), cornerRadius = 24.dp) {
+                Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Txt(if (speed.source == SpeedSource.NONE) "—" else speed.kmh.roundToInt().toString(), 36.sp, FontWeight.Bold)
+                    Column(Modifier.weight(1f)) {
+                        Txt("km/h · ${if (speed.source == SpeedSource.NONE) "sin señal" else speed.source.name}", 12.sp)
+                        Txt(tripText(drive, speed.source), 12.sp, color = Ultra.Secondary)
+                    }
+                    Txt(can.gear?.takeIf { can.gearIsFresh(SystemClock.elapsedRealtime()) }?.name ?: "—", 24.sp, FontWeight.Bold)
+                    SmallAction("Vista") { configure("dashboard") }
+                }
+            }
+        }
+        Column(Modifier.weight(0.45f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            NowPlayingCard(media, apps, actions, Modifier.weight(0.56f).fillMaxWidth(), configure)
+            Row(Modifier.weight(0.44f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                WeatherWidget(weather, drive, Modifier.weight(0.44f).fillMaxHeight()) { configure("weather_detail") }
+                QuickAppsWidget(apps, status, actions, Modifier.weight(0.56f).fillMaxHeight(), config, configure)
             }
         }
     }
@@ -558,8 +535,8 @@ private fun ClusterCard(
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                MapPill("Google Maps", accentEnd) { actions.open(GoogleMapsShortcut, apps) }
-                MapPill("Waze", accentEnd) { actions.open(WazeShortcut, apps) }
+                MapPill("Google Maps", accentEnd) { actions.openSlot("maps", DockShortcuts[0], apps) }
+                MapPill("Cámara", accentEnd) { actions.openSlot("camera", QuickShortcuts[3], apps) }
             }
         }
     }
@@ -705,8 +682,8 @@ private fun GearSelector(gear: Gear, manual: Boolean, onSelect: (Gear) -> Unit, 
         }
         Spacer(Modifier.height(6.dp))
         Txt(
-            if (manual) "MANUAL  ·  mantén presionado para auto" else "AUTO",
-            10.sp, FontWeight.Bold, Color(0x80EBEBF5), spacing = 1.5.sp
+            if (manual) "SELECCIÓN VISUAL · NO CONTROLA EL VEHÍCULO" else "INDICACIÓN ESTIMADA SI NO HAY CAN",
+            10.sp, FontWeight.Bold, Ultra.Secondary, spacing = 1.5.sp
         )
     }
 }
@@ -734,128 +711,49 @@ private val PlaceholderArt = Brush.linearGradient(
     end = Offset.Infinite
 )
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun NowPlayingCard(media: MediaInfo, apps: List<AppEntry>, actions: LauncherActions, modifier: Modifier) {
+private fun NowPlayingCard(media: MediaInfo, apps: List<AppEntry>, actions: LauncherActions, modifier: Modifier,
+    configure: (String) -> Unit = {}) {
     var clock by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
-    LaunchedEffect(media.isPlaying, media.updateTime) {
-        while (media.isPlaying) {
-            clock = SystemClock.elapsedRealtime()
-            delay(500L)
-        }
-    }
+    var showLyrics by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(media.isPlaying, media.updateTime) { clock = SystemClock.elapsedRealtime(); while (media.isPlaying) { delay(500); clock = SystemClock.elapsedRealtime() } }
     val position = media.livePosition(clock)
     val fraction = if (media.durationMs > 0) position.toFloat() / media.durationMs else 0f
-
-    val title = when {
-        !media.hasAccess -> "Música"
-        !media.hasSession -> "Nada en reproducción"
-        else -> media.title.ifBlank { "Sin título" }
-    }
-    val subtitle = when {
-        !media.hasAccess -> "Toca para permitir el acceso a la música"
-        !media.hasSession -> "Toca para abrir tu app de música"
-        else -> media.artist
-    }
-    val onCardTap = {
-        when {
-            !media.hasAccess -> actions.openNotificationAccess()
-            !media.hasSession -> actions.open(DockShortcuts[1], apps)
-            else -> media.appPackage?.let { actions.openPackage(it) }
-        }
-        Unit
-    }
-
-    SpatialGlassSurface(
-        modifier,
-        cornerRadius = 32.dp,
-        glow = media.dominant ?: Ultra.Magenta,
-        glowCenter = Offset(0.30f, 0.30f)
-    ) {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(22.dp)
-        ) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .bounceClick(onClick = onCardTap),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                val artShape = RoundedCornerShape(22.dp)
-                Box(
-                    Modifier
-                        .size(104.dp)
-                        .shadow(18.dp, artShape, ambientColor = Ultra.ShadowAmbientDark, spotColor = Ultra.ShadowSpotDark)
-                        .clip(artShape)
-                        .background(PlaceholderArt),
-                    contentAlignment = Alignment.Center
-                ) {
-                    val art = media.art
-                    if (art != null) {
-                        Image(art, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                    } else {
-                        Box(
-                            Modifier
-                                .matchParentSize()
-                                .background(
-                                    Brush.radialGradient(
-                                        listOf(Color(0x59FFFFFF), Color.White.copy(alpha = 0f)),
-                                        center = Offset(90f, 70f),
-                                        radius = 180f
-                                    )
-                                )
-                        )
-                        GlyphIcon(Glyph.Note, Modifier.size(44.dp))
+    val title = if (!media.hasSession) "Apple Music" else media.title.ifBlank { "Sin título" }
+    val subtitle = when { !media.hasAccess -> "Permite mostrar tu música"; !media.hasSession -> "Toca para reproducir"; else -> media.artist }
+    val openMusic = { actions.openSlot("music", DockShortcuts[1], apps) }
+    SpatialGlassSurface(modifier, cornerRadius = 26.dp, glow = media.dominant ?: Ultra.Magenta) {
+        Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f).combinedClickable(onClick = openMusic, onLongClick = { configure("music") })) {
+                    Txt(title, 19.sp, FontWeight.Bold)
+                    Txt(subtitle, 13.sp, color = Ultra.Secondary)
+                }
+                SmallAction(if (showLyrics) "Carátula" else "Letra") { showLyrics = !showLyrics }
+            }
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                when {
+                    !media.hasAccess -> SmallAction("Permitir acceso a música") { actions.openNotificationAccess() }
+                    showLyrics && media.hasSession -> LyricsContent(media, position, Modifier.fillMaxSize())
+                    else -> Box(Modifier.fillMaxSize().clip(RoundedCornerShape(18.dp)).background(PlaceholderArt)
+                        .combinedClickable(onClick = openMusic, onLongClick = { configure("music") }), contentAlignment = Alignment.Center) {
+                        media.art?.let { Image(it, "Carátula de ${media.title}", Modifier.fillMaxSize(), contentScale = ContentScale.Fit) }
+                            ?: GlyphIcon(Glyph.Note, Modifier.size(48.dp))
                     }
                 }
-                Spacer(Modifier.width(20.dp))
-                Column(Modifier.weight(1f)) {
-                    Txt(title, 22.sp, FontWeight.Bold)
-                    Spacer(Modifier.height(4.dp))
-                    Txt(subtitle, 16.sp, FontWeight.Medium, Ultra.Secondary)
+            }
+            Box(Modifier.fillMaxWidth().height(4.dp).clip(CircleShape).background(LocalBackdrop.current.palette.trackFill)) {
+                Box(Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f)).fillMaxHeight().background(LocalBackdrop.current.palette.textPrimary))
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                Txt(formatTime(position), 11.sp, color = Ultra.Secondary)
+                RoundGlassButton(Glyph.Prev, 42.dp, Color(0x14FFFFFF)) { actions.previous() }
+                RoundGlassButton(if (media.isPlaying) Glyph.Pause else Glyph.Play, 48.dp, Color(0x40FFFFFF)) {
+                    if (media.hasSession) actions.playPause() else openMusic()
                 }
-            }
-
-            Spacer(Modifier.weight(1f))
-
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(6.dp)
-                    .clip(CircleShape)
-                    .background(Color(0x26FFFFFF))
-            ) {
-                Box(
-                    Modifier
-                        .fillMaxWidth(fraction.coerceIn(0f, 1f))
-                        .fillMaxHeight()
-                        .clip(CircleShape)
-                        .background(Ultra.White)
-                )
-            }
-            Spacer(Modifier.height(6.dp))
-            Row(Modifier.fillMaxWidth()) {
-                Txt(formatTime(position), 12.sp, FontWeight.Medium, Ultra.Secondary, style = TextStyle(fontFeatureSettings = "tnum"))
-                Spacer(Modifier.weight(1f))
-                if (media.durationMs > 0) {
-                    Txt(
-                        "-" + formatTime(media.durationMs - position), 12.sp, FontWeight.Medium, Ultra.Secondary,
-                        style = TextStyle(fontFeatureSettings = "tnum")
-                    )
-                }
-            }
-
-            Spacer(Modifier.weight(1f))
-
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(28.dp, Alignment.CenterHorizontally),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                RoundGlassButton(Glyph.Prev, 46.dp, Color(0x14FFFFFF)) { actions.previous() }
-                RoundGlassButton(if (media.isPlaying) Glyph.Pause else Glyph.Play, 58.dp, Color(0x40FFFFFF)) { actions.playPause() }
-                RoundGlassButton(Glyph.Next, 46.dp, Color(0x14FFFFFF)) { actions.next() }
+                RoundGlassButton(Glyph.Next, 42.dp, Color(0x14FFFFFF)) { actions.next() }
+                Txt(if (media.durationMs > 0) formatTime(media.durationMs) else "—", 11.sp, color = Ultra.Secondary)
             }
         }
     }
@@ -875,52 +773,24 @@ private fun RoundGlassButton(glyph: Glyph, size: Dp, fill: Color, onClick: () ->
             .spatialGlass(CircleShape, fill = fill),
         contentAlignment = Alignment.Center
     ) {
-        GlyphIcon(glyph, Modifier.size(size * 0.42f))
+        GlyphIcon(glyph, Modifier.size(size * 0.42f), tint = LocalBackdrop.current.palette.textPrimary)
     }
 }
 
 // ---------- Columna 2, fila inferior: widgets gemelos ----------
 
 @Composable
-private fun WeatherWidget(weather: WeatherInfo, drive: DriveState, modifier: Modifier) {
-    SpatialGlassSurface(modifier, cornerRadius = 28.dp) {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(18.dp)
-        ) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                WeatherGlyph(weather.code, Modifier.size(44.dp))
-                Spacer(Modifier.weight(1f))
-                CompassBadge(drive.bearing)
-            }
-            Spacer(Modifier.weight(1f))
-            Row(
-                Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Txt(
-                    weather.tempC?.let { "$it°" } ?: "--°",
-                    38.sp,
-                    FontWeight.Light,
-                    style = TextStyle(fontFeatureSettings = "tnum")
-                )
-                if (weather.windKmh != null || weather.humidityPct != null) {
-                    val meta = listOfNotNull(
-                        weather.windKmh?.let { "${it} km/h" },
-                        weather.humidityPct?.let { "${it}%" }
-                    ).joinToString(" · ")
-                    Txt(meta, 12.sp, FontWeight.SemiBold, Ultra.Cyan, modifier = Modifier.padding(bottom = 6.dp))
-                }
-            }
-            Txt(weather.description, 14.sp, FontWeight.Medium, Ultra.Secondary)
-            Spacer(Modifier.height(8.dp))
+private fun WeatherWidget(weather: WeatherInfo, drive: DriveState, modifier: Modifier, onClick: () -> Unit) {
+    SpatialGlassSurface(modifier.bounceClick(onClick = onClick), cornerRadius = 24.dp) {
+        Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.SpaceBetween) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                GlyphIcon(Glyph.Mountain, Modifier.size(14.dp), tint = Ultra.Secondary)
-                Spacer(Modifier.width(6.dp))
-                Txt(drive.altitude?.let { "${it.roundToInt()} m de altitud" } ?: "Altitud --", 13.sp, FontWeight.Medium, Ultra.Secondary)
+                WeatherGlyph(weather.code, Modifier.size(30.dp))
+                Spacer(Modifier.weight(1f))
+                Txt(weather.tempC?.let { "$it°" } ?: "—°", 30.sp, FontWeight.Medium)
             }
+            Txt(weather.description, 13.sp)
+            Txt(listOfNotNull(weather.windKmh?.let { "Viento $it km/h" }, weather.humidityPct?.let { "$it%" }).joinToString(" · "), 11.sp, color = Ultra.Secondary)
+            Txt(if (weather.error != null) "Sin conexión · ver detalle" else "${weather.source} · ${weatherTime(weather.observedAt)}", 10.sp, color = Ultra.Secondary)
         }
     }
 }
@@ -958,88 +828,38 @@ private fun CompassBadge(bearing: Float?) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun QuickAppsWidget(apps: List<AppEntry>, status: DeviceStatus, actions: LauncherActions, modifier: Modifier) {
+private fun QuickAppsWidget(apps: List<AppEntry>, status: DeviceStatus, actions: LauncherActions, modifier: Modifier,
+    config: LauncherConfig, configure: (String) -> Unit) {
     var page by rememberSaveable { mutableIntStateOf(0) }
-    val pages = remember { QuickShortcuts.chunked(4) }
-    val currentShortcuts = pages.getOrElse(page % pages.size) { pages.first() }
-
-    SpatialGlassSurface(modifier, cornerRadius = 28.dp) {
-        Row(
-            Modifier
-                .fillMaxSize()
-                .padding(18.dp)
-                .pointerInput(Unit) {
-                    detectHorizontalDragGestures { change, dragAmount ->
-                        if (kotlin.math.abs(dragAmount) > 24f) {
-                            change.consume()
-                            page = if (dragAmount < 0) (page + 1) % pages.size else (page - 1 + pages.size) % pages.size
-                        }
-                    }
-                },
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    for (row in currentShortcuts.chunked(2)) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            for (shortcut in row) {
-                                AppSquircleIcon(
-                                    glyph = shortcut.glyph,
-                                    colors = shortcut.colors,
-                                    size = 54.dp,
-                                    iconResName = shortcut.iconResName,
-                                    onClick = { actions.open(shortcut, apps) }
-                                )
-                            }
-                        }
-                    }
+    val defaults = listOf(QuickShortcuts[1], QuickShortcuts[4], QuickShortcuts[3], QuickShortcuts[6],
+        QuickShortcuts[0], QuickShortcuts[2], QuickShortcuts[5], QuickShortcuts[7])
+    SpatialGlassSurface(modifier, cornerRadius = 24.dp) {
+        BoxWithConstraints(Modifier.fillMaxSize().padding(10.dp)) {
+            val iconSize = ((maxHeight - 54.dp) / 2 - 16.dp).coerceIn(32.dp, 54.dp)
+            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Txt("Accesos", 12.sp, modifier = Modifier.weight(1f))
+                    Box(Modifier.height(30.dp).bounceClick { page = 1 - page }, contentAlignment = Alignment.Center) { Txt("${page + 1}/2 ›", 13.sp) }
                 }
-                if (pages.size > 1) {
-                    Spacer(Modifier.height(8.dp))
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.bounceClick { page = (page + 1) % pages.size }
-                    ) {
-                        for (i in pages.indices) {
-                            Box(
-                                Modifier
-                                    .size(if (i == page) 14.dp else 6.dp, 6.dp)
-                                    .clip(CircleShape)
-                                    .background(if (i == page) Ultra.White else Color(0x40FFFFFF))
-                            )
+                for (row in 0..1) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    for (column in 0..1) {
+                        val index = page * 4 + row * 2 + column
+                        val default = defaults[index]
+                        val slot = listOf("music", "maps", "camera", "carplay").getOrNull(index) ?: "quick.$index"
+                        val target = resolveApp(apps, config, slot, default)
+                        Column(Modifier.weight(1f).combinedClickable(
+                            onClick = { if (target == null) configure(slot) else actions.open(target) }, onLongClick = { configure(slot) }),
+                            horizontalAlignment = Alignment.CenterHorizontally) {
+                            if (target != null) AppIcon(target, Modifier.size(iconSize))
+                            else AppSquircleIcon(default.glyph, default.colors, iconSize, iconResName = default.iconResName)
+                            Txt(target?.label ?: default.title, 10.sp)
                         }
                     }
                 }
             }
-            BatteryRing(status)
         }
-    }
-}
-
-@Composable
-private fun BatteryRing(status: DeviceStatus) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(Modifier.size(64.dp), contentAlignment = Alignment.Center) {
-            Canvas(Modifier.fillMaxSize()) {
-                val sw = 4.dp.toPx()
-                val tl = Offset(sw / 2f, sw / 2f)
-                val sz = Size(size.width - sw, size.height - sw)
-                drawArc(Color(0x28FFFFFF), 0f, 360f, false, topLeft = tl, size = sz, style = Stroke(sw))
-                status.batteryPct?.let { pct ->
-                    drawArc(Ultra.Green, -90f, 360f * pct / 100f, false, topLeft = tl, size = sz, style = Stroke(sw, cap = StrokeCap.Round))
-                }
-            }
-            Txt(status.batteryPct?.let { "$it%" } ?: "12V", 13.sp, FontWeight.Bold)
-        }
-        Spacer(Modifier.height(6.dp))
-        val label = when {
-            status.batteryPct == null -> "Corriente"
-            status.charging -> "Cargando"
-            else -> "Batería"
-        }
-        Txt(label, 11.sp, FontWeight.Medium, Ultra.Secondary)
     }
 }
 
@@ -1053,12 +873,15 @@ private fun QuickControlBar(
     night: Boolean,
     onNight: () -> Unit,
     actions: LauncherActions,
-    modifier: Modifier
+    modifier: Modifier,
+    nativeAudio: Boolean = false
 ) {
     var volume by remember { mutableFloatStateOf(status.volume) }
     var dragging by remember { mutableStateOf(false) }
     LaunchedEffect(status.volume) { if (!dragging) volume = status.volume }
-    var brightness by rememberSaveable { mutableFloatStateOf(0.7f) }
+    var brightness by remember { mutableFloatStateOf(status.brightness) }
+    var draggingBrightness by remember { mutableStateOf(false) }
+    LaunchedEffect(status.brightness) { if (!draggingBrightness) brightness = status.brightness }
 
     SpatialGlassSurface(modifier, cornerRadius = 28.dp) {
         Row(
@@ -1068,7 +891,9 @@ private fun QuickControlBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            GlassTube(
+            if (nativeAudio) Box(Modifier.weight(1f).height(44.dp).bounceClick { actions.openNativeControls() }, contentAlignment = Alignment.Center) {
+                Txt("Volumen del estéreo · Abrir", 14.sp, FontWeight.Medium)
+            } else GlassTube(
                 value = volume,
                 glyph = Glyph.Speaker,
                 modifier = Modifier
@@ -1084,10 +909,11 @@ private fun QuickControlBar(
                 glyph = Glyph.Sun,
                 modifier = Modifier
                     .weight(1f)
-                    .height(42.dp)
+                    .height(42.dp),
+                onDragState = { draggingBrightness = it }
             ) {
-                brightness = it
-                actions.setBrightness(it)
+                brightness = it.coerceAtLeast(0.12f)
+                actions.setBrightness(brightness)
             }
             Box(
                 Modifier
@@ -1147,12 +973,14 @@ private fun GlassTube(
                 .background(Brush.verticalGradient(0f to Color(0x38FFFFFF), 0.5f to Color.White.copy(alpha = 0f)))
                 .border(1.2.dp, SpecularRim, shape)
         )
+        Txt("${(value * 100).roundToInt()}%", 12.sp, modifier = Modifier.align(Alignment.CenterEnd).padding(end = 12.dp))
         GlyphIcon(
             glyph,
             Modifier
                 .align(Alignment.CenterStart)
                 .padding(start = 14.dp)
-                .size(18.dp)
+                .size(18.dp),
+            tint = LocalBackdrop.current.palette.textPrimary
         )
     }
 }
@@ -1170,7 +998,7 @@ private fun AppDrawer(apps: List<AppEntry>, onOpen: (AppEntry) -> Unit) {
             }
         } else {
             LazyVerticalGrid(
-                columns = GridCells.Fixed(5),
+                columns = GridCells.Adaptive(120.dp),
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(24.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
@@ -1189,7 +1017,7 @@ private fun AppDrawer(apps: List<AppEntry>, onOpen: (AppEntry) -> Unit) {
                         ) {
                             val isNight = LocalBackdrop.current.palette.night
                             val displayIcon = (if (isNight) app.iconDark else app.iconLight) ?: app.icon
-                            Image(displayIcon, contentDescription = app.label, modifier = Modifier.size(56.dp))
+                            Image(displayIcon, contentDescription = app.label, modifier = Modifier.size(64.dp))
                         }
                         Spacer(Modifier.height(8.dp))
                         Txt(app.label, 14.sp, FontWeight.Medium)
@@ -1235,3 +1063,4 @@ private fun DashboardPreview() {
         )
     }
 }
+

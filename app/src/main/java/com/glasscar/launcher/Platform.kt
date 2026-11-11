@@ -26,6 +26,8 @@ import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
+import android.service.notification.StatusBarNotification
+import android.app.Notification
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -78,11 +80,11 @@ val DockShortcuts = listOf(
         "Mapas", Glyph.Map,
         listOf("com.google.android.apps.maps", "com.waze"),
         listOf("maps", "mapa", "navi"),
-        colors = Squircle.Maps, iconResName = "icon_maps"
+        colors = Squircle.Maps, iconResName = "icon_maps_consistent"
     ),
     Shortcut(
         "Música", Glyph.Note,
-        listOf("com.spotify.music", "com.google.android.apps.youtube.music", "com.ts.music", "com.tw.music"),
+        listOf("com.apple.android.music", "com.spotify.music", "com.google.android.apps.youtube.music"),
         listOf("music", "música", "musica", "spotify"),
         colors = Squircle.Music, iconResName = "icon_music"
     ),
@@ -90,7 +92,7 @@ val DockShortcuts = listOf(
         "Teléfono", Glyph.Phone,
         listOf("com.ts.bt", "com.tw.bt", "com.syu.bt", "com.android.dialer", "com.google.android.dialer"),
         listOf("phone", "teléfono", "telefono", "bluetooth", "dial", "bt"),
-        colors = Squircle.Phone, iconResName = "icon_phone"
+        colors = Squircle.Phone, iconResName = "icon_phone_correct"
     ),
     Shortcut(
         "OBD", Glyph.Gauge,
@@ -113,7 +115,7 @@ data class MacIconRule(
 )
 
 val MacIconCatalog = listOf(
-    MacIconRule("icon_maps", listOf("com.google.android.apps.maps"), listOf("google maps", "maps", "mapas")),
+    MacIconRule("icon_maps_consistent", listOf("com.google.android.apps.maps"), listOf("google maps", "maps", "mapas")),
     MacIconRule("icon_waze", listOf("com.waze"), listOf("waze")),
     MacIconRule("icon_music", listOf("com.apple.android.music", "com.ts.music", "com.tw.music", "com.maxmpz.audioplayer"), listOf("apple music", "música", "musica", "music", "poweramp")),
     MacIconRule("icon_spotify", listOf("com.spotify.music"), listOf("spotify")),
@@ -123,20 +125,22 @@ val MacIconCatalog = listOf(
     MacIconRule("icon_prime", listOf("com.amazon.avod.thirdpartyclient"), listOf("prime video")),
     MacIconRule("icon_disney", listOf("com.disney.disneyplus"), listOf("disney")),
     MacIconRule("icon_vlc", listOf("org.videolan.vlc", "com.ts.dvdplayer", "com.tw.video"), listOf("vlc", "video", "reproductor")),
-    MacIconRule("icon_phone", listOf("com.ts.bt", "com.tw.bt", "com.syu.bt", "com.android.dialer", "com.google.android.dialer"), listOf("phone", "teléfono", "telefono", "bluetooth", "llamadas")),
+    MacIconRule("icon_phone_correct", listOf("com.android.dialer", "com.google.android.dialer"), listOf("phone", "teléfono", "telefono", "llamadas")),
+    MacIconRule("icon_bluetooth_correct", emptyList(), listOf("bluetooth")),
     MacIconRule("icon_contacts", listOf("com.android.contacts", "com.google.android.contacts"), listOf("contactos", "contacts")),
     MacIconRule("icon_whatsapp", listOf("com.whatsapp"), listOf("whatsapp")),
     MacIconRule("icon_telegram", listOf("org.telegram.messenger"), listOf("telegram")),
     MacIconRule("icon_obd", listOf("org.prowl.torque", "org.prowl.torquefree", "com.ovz.carscanner", "com.ts.can"), listOf("torque", "obd", "car scanner", "canbus", "vehículo")),
     MacIconRule("icon_radio", listOf("com.ts.radio", "com.tw.radio", "com.syu.radio"), listOf("radio", "fm")),
     MacIconRule("icon_eq", listOf("com.ts.eq", "com.tw.eq", "com.syu.eq"), listOf("equalizer", "ecualizador", "dsp", "sonido")),
-    MacIconRule("icon_camera", listOf("com.ts.dvr", "com.tw.dvr", "com.syu.dvr", "com.android.camera2", "com.ts.avin"), listOf("dvr", "cámara", "camara", "camera", "aux", "avin")),
+    MacIconRule("icon_camera", listOf("com.ts.dvr", "com.tw.dvr", "com.syu.dvr", "com.android.camera2"), listOf("dvr", "cámara", "camara", "camera")),
     MacIconRule("icon_carplay", listOf("com.zjinnova.zlink", "cn.manstep.phonemirrorBox", "com.syu.carlink"), listOf("zlink", "tlink", "carplay", "autokit", "carlink")),
     MacIconRule("icon_chrome", listOf("com.android.chrome", "com.brave.browser", "org.mozilla.firefox"), listOf("chrome", "navegador", "browser", "safari")),
-    MacIconRule("icon_files", listOf("com.android.documentsui", "com.ts.filemanager", "pl.solidexplorer2"), listOf("archivos", "files", "explorer", "gestor")),
+    MacIconRule("icon_files_correct", listOf("com.android.documentsui", "com.ts.filemanager", "pl.solidexplorer2"), listOf("archivos", "files", "file manager", "filemanager", "explorer", "gestor")),
     MacIconRule("icon_playstore", listOf("com.android.vending"), listOf("play store", "app store")),
     MacIconRule("icon_settings", listOf("com.android.settings", "com.ts.set", "com.tw.set"), listOf("ajustes", "settings", "configuración")),
-    MacIconRule("icon_weather", listOf("com.google.android.googlequicksearchbox"), listOf("clima", "weather")),
+    MacIconRule("icon_weather", emptyList(), listOf("clima", "weather")),
+    MacIconRule("icon_theme_correct", emptyList(), listOf("dofun", "do fun", "theme")),
     MacIconRule("icon_calculator", listOf("com.google.android.calculator", "com.android.calculator2"), listOf("calculadora", "calculator")),
     MacIconRule("icon_gallery", listOf("com.google.android.apps.photos", "com.android.gallery3d"), listOf("fotos", "photos", "galería", "galeria"))
 )
@@ -151,11 +155,11 @@ val QuickShortcuts = listOf(
         iconResName = "icon_youtube"
     ),
     Shortcut(
-        "Spotify", Glyph.Note,
-        listOf("com.spotify.music", "com.google.android.apps.youtube.music"),
-        listOf("spotify", "music"),
+        "Apple Music", Glyph.Note,
+        listOf("com.apple.android.music"),
+        listOf("apple music"),
         colors = Squircle.Music,
-        iconResName = "icon_spotify"
+        iconResName = "icon_music"
     ),
     Shortcut(
         "Radio FM", Glyph.Speaker,
@@ -167,16 +171,16 @@ val QuickShortcuts = listOf(
     Shortcut(
         "Cámara DVR", Glyph.Camera,
         listOf("com.ts.dvr", "com.tw.dvr", "com.syu.dvr", "com.android.camera2"),
-        listOf("dvr", "cámara", "camara", "camera", "aux", "fcam"),
+        listOf("dvr", "cámara", "camara", "camera", "front camera", "fcam"),
         colors = Squircle.Telemetry,
         iconResName = "icon_camera"
     ),
     Shortcut(
-        "Waze", Glyph.Map,
-        listOf("com.waze"),
-        listOf("waze"),
+        "Google Maps", Glyph.Map,
+        listOf("com.google.android.apps.maps"),
+        listOf("google maps", "maps"),
         colors = Squircle.Maps,
-        iconResName = "icon_waze"
+        iconResName = "icon_maps_consistent"
     ),
     Shortcut(
         "Ecualizador", Glyph.Gauge,
@@ -203,6 +207,7 @@ val QuickShortcuts = listOf(
 )
 
 val GoogleMapsShortcut = Shortcut("Google Maps", Glyph.Map, listOf("com.google.android.apps.maps"), listOf("google maps", "maps"))
+val WeatherShortcut = Shortcut("Clima", Glyph.Sun, listOf("com.accuweather.android", "com.weather.Weather", "com.windyty.android"), listOf("weather", "clima", "accuweather"))
 val WazeShortcut = Shortcut("Waze", Glyph.Map, listOf("com.waze"), listOf("waze"))
 
 object AppsRepository {
@@ -215,7 +220,12 @@ object AppsRepository {
         }.getOrNull()
     }
 
-    private fun findRule(pkg: String, label: String): MacIconRule? {
+    internal fun findRule(pkg: String, label: String): MacIconRule? {
+        if (pkg == "com.google.android.googlequicksearchbox") return null
+        val name = label.lowercase(Locale.ROOT)
+        if (name == "phone" || name.contains("teléfono")) return MacIconCatalog.first { it.resName == "icon_phone_correct" }
+        if (name.contains("bluetooth")) return MacIconCatalog.first { it.resName == "icon_bluetooth_correct" }
+        if (name == "aux" || name == "avin") return null
         val lowerLabel = label.lowercase(Locale.ROOT)
         return MacIconCatalog.firstOrNull { pkg in it.packages }
             ?: MacIconCatalog.firstOrNull { r -> r.keywords.any { lowerLabel.contains(it) } }
@@ -248,7 +258,7 @@ object AppsRepository {
     }
 
     fun find(apps: List<AppEntry>, shortcut: Shortcut): AppEntry? =
-        apps.firstOrNull { it.packageName in shortcut.packages }
+        shortcut.packages.firstNotNullOfOrNull { pkg -> apps.firstOrNull { it.packageName == pkg } }
             ?: apps.firstOrNull { app ->
                 val l = app.label.lowercase(Locale.ROOT)
                 shortcut.keywords.any { l.contains(it) }
@@ -265,8 +275,12 @@ data class DriveState(
     val altitude: Double? = null,
     val hasFix: Boolean = false,
     val lat: Double? = null,
-    val lon: Double? = null
-)
+    val lon: Double? = null,
+    val fixAt: Long = 0L,
+    val accuracyM: Float? = null
+) {
+    fun isFresh(now: Long = SystemClock.elapsedRealtime()): Boolean = hasFix && fixAt > 0 && now - fixAt < 20_000L
+}
 
 class LocationSource(private val context: Context) {
     private val _state = MutableStateFlow(DriveState())
@@ -278,11 +292,13 @@ class LocationSource(private val context: Context) {
         override fun onLocationChanged(location: Location) {
             _state.value = DriveState(
                 speedKmh = if (location.hasSpeed()) location.speed * 3.6f else 0f,
-                bearing = if (location.hasBearing()) location.bearing else _state.value.bearing,
+                bearing = if (location.hasBearing() && location.speed > 0.5f) location.bearing else null,
                 altitude = if (location.hasAltitude()) location.altitude else _state.value.altitude,
                 hasFix = true,
                 lat = location.latitude,
-                lon = location.longitude
+                lon = location.longitude,
+                fixAt = location.elapsedRealtimeNanos / 1_000_000L,
+                accuracyM = if (location.hasAccuracy()) location.accuracy else null
             )
         }
 
@@ -306,6 +322,7 @@ class LocationSource(private val context: Context) {
         }
         runCatching {
             manager.getLastKnownLocation(LocationManager.GPS_PROVIDER)?.let { last ->
+                if (SystemClock.elapsedRealtimeNanos() - last.elapsedRealtimeNanos > 300_000_000_000L) return@let
                 _state.value = _state.value.copy(
                     lat = last.latitude, lon = last.longitude,
                     altitude = if (last.hasAltitude()) last.altitude else null
@@ -318,6 +335,7 @@ class LocationSource(private val context: Context) {
         if (!running) return
         runCatching { manager?.removeUpdates(listener) }
         running = false
+        _state.value = _state.value.copy(hasFix = false, speedKmh = 0f, bearing = null)
     }
 }
 
@@ -325,7 +343,26 @@ class LocationSource(private val context: Context) {
 //  Música: MediaSession de cualquier app (con extractor de color vibrante)
 // =====================================================================
 
-class MediaListenerService : NotificationListenerService()
+data class NavigationInfo(val title: String = "", val instruction: String = "", val updatedAt: Long = 0L)
+
+class MediaListenerService : NotificationListenerService() {
+    companion object { val navigation = MutableStateFlow(NavigationInfo()) }
+    override fun onListenerConnected() {
+        activeNotifications?.forEach(::onNotificationPosted)
+    }
+    override fun onNotificationPosted(sbn: StatusBarNotification?) {
+        if (sbn?.packageName != "com.google.android.apps.maps" || !sbn.isOngoing) return
+        val extras = sbn.notification.extras
+        val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
+        val text = (extras.getCharSequence(Notification.EXTRA_BIG_TEXT)
+            ?: extras.getCharSequence(Notification.EXTRA_TEXT))?.toString().orEmpty()
+        navigation.value = NavigationInfo(title, text, SystemClock.elapsedRealtime())
+    }
+    override fun onNotificationRemoved(sbn: StatusBarNotification?) {
+        if (sbn?.packageName == "com.google.android.apps.maps") navigation.value = NavigationInfo()
+    }
+    override fun onListenerDisconnected() { navigation.value = NavigationInfo() }
+}
 
 data class MediaInfo(
     val title: String = "",
@@ -381,11 +418,17 @@ class MediaSource(private val context: Context) {
     private val component = ComponentName(context, MediaListenerService::class.java)
     private var controller: MediaController? = null
     private var listening = false
+    private val handler = Handler(Looper.getMainLooper())
+    private val clearMissingSession = Runnable { if (controller == null) publish() }
 
     private val callback = object : MediaController.Callback() {
         override fun onMetadataChanged(metadata: MediaMetadata?) = publish()
         override fun onPlaybackStateChanged(state: PlaybackState?) = publish()
-        override fun onSessionDestroyed() = attach(null)
+        override fun onSessionDestroyed() {
+            val remaining = runCatching { sessions?.getActiveSessions(component) }.getOrNull()
+                ?.filter { it.sessionToken != controller?.sessionToken }
+            attach(pick(remaining))
+        }
     }
 
     private val sessionsListener = MediaSessionManager.OnActiveSessionsChangedListener { list ->
@@ -412,9 +455,12 @@ class MediaSource(private val context: Context) {
     }
 
     fun stop() {
+        handler.removeCallbacks(clearMissingSession)
         if (listening) runCatching { sessions?.removeOnActiveSessionsChangedListener(sessionsListener) }
         listening = false
-        attach(null)
+        // Keep the last published state during Activity transitions. Reattach on resume.
+        controller?.unregisterCallback(callback)
+        controller = null
     }
 
     fun playPause() {
@@ -427,13 +473,18 @@ class MediaSource(private val context: Context) {
     fun previous() { controller?.transportControls?.skipToPrevious() }
 
     private fun pick(list: List<MediaController>?): MediaController? =
-        list?.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PLAYING } ?: list?.firstOrNull()
+        list?.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PLAYING }
+            ?: list?.firstOrNull { it.packageName == "com.apple.android.music" }
+            ?: list?.firstOrNull { it.sessionToken == controller?.sessionToken } ?: list?.firstOrNull()
 
     private fun attach(c: MediaController?) {
+        handler.removeCallbacks(clearMissingSession)
         controller?.unregisterCallback(callback)
         controller = c
-        c?.registerCallback(callback, Handler(Looper.getMainLooper()))
-        publish()
+        c?.registerCallback(callback, handler)
+        // Android can briefly return an empty session list while reconnecting after resume.
+        if (c == null && _state.value.hasSession) handler.postDelayed(clearMissingSession, 2000L)
+        else publish()
     }
 
     private fun publish() {
@@ -480,53 +531,66 @@ data class WeatherInfo(
     val code: Int? = null,
     val description: String = "Esperando ubicación",
     val windKmh: Int? = null,
-    val humidityPct: Int? = null
+    val humidityPct: Int? = null,
+    val observedAt: Long = 0L,
+    val fetchedAt: Long = 0L,
+    val lat: Double? = null,
+    val lon: Double? = null,
+    val error: String? = null,
+    val source: String = "Open-Meteo"
 )
 
 class WeatherSource {
     private val _state = MutableStateFlow(WeatherInfo())
     val state: StateFlow<WeatherInfo> = _state
-    private var lastFetch = 0L
+    private var lastAttempt = 0L
+    private var fetching = false
 
-    suspend fun refresh(lat: Double, lon: Double) {
+    suspend fun refresh(lat: Double, lon: Double, force: Boolean = false) {
+        if (lat !in -90.0..90.0 || lon !in -180.0..180.0 || fetching) return
         val now = System.currentTimeMillis()
-        if (now - lastFetch < 15 * 60_000L) return
-        lastFetch = now
-        val result = withContext(Dispatchers.IO) {
-            runCatching {
-                val url = URL(
-                    "https://api.open-meteo.com/v1/forecast?latitude=" +
-                        String.format(Locale.US, "%.3f", lat) + "&longitude=" +
-                        String.format(Locale.US, "%.3f", lon) + "&current=temperature_2m,weather_code,wind_speed_10m,relative_humidity_2m"
-                )
-                val conn = (url.openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 8000
-                    readTimeout = 8000
-                }
-                try {
-                    val body = conn.inputStream.bufferedReader().use { it.readText() }
-                    val current = JSONObject(body).getJSONObject("current")
-                    val code = current.getInt("weather_code")
-                    val wind = current.optDouble("wind_speed_10m", Double.NaN).takeIf { !it.isNaN() }?.roundToInt()
-                    val hum = current.optInt("relative_humidity_2m", -1).takeIf { it >= 0 }
-                    WeatherInfo(
-                        tempC = current.getDouble("temperature_2m").roundToInt(),
-                        code = code,
-                        description = describeWeather(code),
-                        windKmh = wind,
-                        humidityPct = hum
-                    )
-                } finally {
-                    conn.disconnect()
+        val previous = _state.value
+        val moved = previous.lat?.let { kotlin.math.abs(it - lat) > 0.05 } == true ||
+            previous.lon?.let { kotlin.math.abs(it - lon) > 0.05 } == true
+        if (!force && now - lastAttempt < 60_000L) return
+        if (!force && !moved && now - previous.fetchedAt < 15 * 60_000L) return
+        fetching = true
+        lastAttempt = now
+        try {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val url = URL("https://api.open-meteo.com/v1/forecast?latitude=" +
+                        String.format(Locale.US, "%.4f", lat) + "&longitude=" +
+                        String.format(Locale.US, "%.4f", lon) +
+                        "&current=temperature_2m,weather_code,wind_speed_10m,relative_humidity_2m&timeformat=unixtime&timezone=auto")
+                    val conn = (url.openConnection() as HttpURLConnection).apply {
+                        connectTimeout = 8000; readTimeout = 8000
+                    }
+                    try {
+                        check(conn.responseCode in 200..299)
+                        val json = JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
+                        parseWeather(json, lat, lon, now)
+                    } finally { conn.disconnect() }
                 }
             }
-        }
-        result.onSuccess { _state.value = it }
-            .onFailure {
-                lastFetch = 0L
-                if (_state.value.tempC == null) _state.value = WeatherInfo(description = "Sin conexión")
+            result.onSuccess { _state.value = it }.onFailure {
+                _state.value = previous.copy(error = "Sin conexión; última lectura guardada",
+                    description = if (previous.tempC == null) "Clima no disponible" else previous.description)
             }
-        }
+        } finally { fetching = false }
+    }
+}
+
+internal fun parseWeather(json: JSONObject, lat: Double, lon: Double, now: Long): WeatherInfo {
+    val current = json.getJSONObject("current")
+    val code = current.getInt("weather_code")
+    return WeatherInfo(
+        tempC = current.getDouble("temperature_2m").roundToInt(), code = code,
+        description = describeWeather(code),
+        windKmh = current.optDouble("wind_speed_10m", Double.NaN).takeIf { it.isFinite() }?.roundToInt(),
+        humidityPct = current.optInt("relative_humidity_2m", -1).takeIf { it in 0..100 },
+        observedAt = current.getLong("time") * 1000L, fetchedAt = now, lat = lat, lon = lon
+    )
 }
 
 fun describeWeather(code: Int): String = when (code) {
@@ -551,7 +615,9 @@ data class DeviceStatus(
     val gps: Boolean = false,
     val batteryPct: Int? = null,
     val charging: Boolean = false,
-    val volume: Float = 0.5f
+    val volume: Float = 0.5f,
+    val brightness: Float = 0.65f,
+    val bluetoothKnown: Boolean = true
 )
 
 @SuppressLint("MissingPermission")
@@ -560,9 +626,10 @@ fun readDeviceStatus(context: Context): DeviceStatus {
     val wifi = runCatching {
         cm?.getNetworkCapabilities(cm.activeNetwork)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
     }.getOrDefault(false)
-    val bt = runCatching {
+    val btResult = runCatching {
         context.getSystemService(BluetoothManager::class.java)?.adapter?.isEnabled == true
-    }.getOrDefault(false)
+    }
+    val bt = btResult.getOrDefault(false)
     val gps = runCatching {
         context.getSystemService(LocationManager::class.java)?.isProviderEnabled(LocationManager.GPS_PROVIDER) == true
     }.getOrDefault(false)
@@ -581,7 +648,7 @@ fun readDeviceStatus(context: Context): DeviceStatus {
             am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
     } else 0.5f
 
-    return DeviceStatus(wifi, bt, gps, pct, charging, volume)
+    return DeviceStatus(wifi, bt, gps, pct, charging, volume, HeadUnitControls.readBrightness(context), btResult.isSuccess)
 }
 
 // =====================================================================
@@ -593,7 +660,8 @@ object Demo {
         speedKmh = 64f + 22f * sin(t / 2600.0).toFloat(),
         bearing = ((t / 120L) % 360L).toFloat(),
         altitude = 32.0,
-        hasFix = true
+        hasFix = true,
+        fixAt = SystemClock.elapsedRealtime()
     )
 
     fun media(now: Long) = MediaInfo(
@@ -611,3 +679,4 @@ object Demo {
     val weather = WeatherInfo(22, 2, "Parcialmente nublado", windKmh = 14, humidityPct = 58)
     val status = DeviceStatus(wifi = true, bluetooth = true, gps = true, batteryPct = 82, volume = 0.6f)
 }
+

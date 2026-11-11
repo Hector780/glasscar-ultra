@@ -59,8 +59,14 @@ data class CanState(
     val speedKmh: Float? = null,
     val gear: Gear? = null,
     val lightsOn: Boolean? = null,
-    val updatedAt: Long = 0L
+    val updatedAt: Long = 0L,
+    val voltageV: Float? = null,
+    val voltageAt: Long = 0L,
+    val speedAt: Long = updatedAt,
+    val gearAt: Long = updatedAt
 ) {
+    fun speedIsFresh(now: Long) = speedAt > 0 && now - speedAt < CanConfig.FRESH_MS
+    fun gearIsFresh(now: Long) = gearAt > 0 && now - gearAt < CanConfig.FRESH_MS
     fun isFresh(now: Long = SystemClock.elapsedRealtime()): Boolean =
         updatedAt > 0L && now - updatedAt < CanConfig.FRESH_MS
 }
@@ -78,13 +84,18 @@ class CanBusSource(private val context: Context) {
             val speed = parseSpeed(extras)
             val gear = parseGear(extras)
             val lights = parseBoolean(extras, CanConfig.ILL_KEYS)
-            if (speed == null && gear == null && lights == null) return
+            val voltage = parseVoltage(extras)
+            if (speed == null && gear == null && lights == null && voltage == null) return
             val previous = _state.value
             _state.value = CanState(
                 speedKmh = speed ?: previous.speedKmh.takeIf { previous.isFresh() },
                 gear = gear ?: previous.gear.takeIf { previous.isFresh() },
                 lightsOn = lights ?: previous.lightsOn,
-                updatedAt = SystemClock.elapsedRealtime()
+                updatedAt = SystemClock.elapsedRealtime(),
+                voltageV = voltage ?: previous.voltageV,
+                voltageAt = if (voltage != null) SystemClock.elapsedRealtime() else previous.voltageAt,
+                speedAt = if (speed != null) SystemClock.elapsedRealtime() else previous.speedAt,
+                gearAt = if (gear != null) SystemClock.elapsedRealtime() else previous.gearAt
             )
         }
     }
@@ -110,6 +121,14 @@ class CanBusSource(private val context: Context) {
             if (keys.any { k == it || k.endsWith("_$it") || k.endsWith(".$it") }) return extras.get(key)
         }
         return null
+    }
+
+    private fun parseVoltage(extras: Bundle): Float? {
+        val volts = valueOf(extras, listOf("battery_voltage_v", "battery_voltage", "voltage_v"))
+            ?.toString()?.toFloatOrNull()?.takeIf { it in 6f..30f }
+        val mv = valueOf(extras, listOf("battery_voltage_mv"))?.toString()?.toFloatOrNull()
+            ?.div(1000f)?.takeIf { it in 6f..30f }
+        return volts ?: mv
     }
 
     private fun parseSpeed(extras: Bundle): Float? = when (val v = valueOf(extras, CanConfig.SPEED_KEYS)) {
@@ -160,8 +179,8 @@ data class ResolvedSpeed(val kmh: Float, val source: SpeedSource)
 fun resolveSpeed(drive: DriveState, can: CanState, now: Long): ResolvedSpeed {
     val canSpeed = can.speedKmh
     return when {
-        drive.hasFix -> ResolvedSpeed(drive.speedKmh, SpeedSource.GPS)
-        canSpeed != null && can.isFresh(now) -> ResolvedSpeed(canSpeed, SpeedSource.CAN)
+        drive.isFresh(now) -> ResolvedSpeed(drive.speedKmh, SpeedSource.GPS)
+        canSpeed != null && can.speedIsFresh(now) -> ResolvedSpeed(canSpeed, SpeedSource.CAN)
         else -> ResolvedSpeed(0f, SpeedSource.NONE)
     }
 }
@@ -174,7 +193,8 @@ fun resolveSpeed(drive: DriveState, can: CanState, now: Long): ResolvedSpeed {
  * 4. Automática: P detenido (< 1.5 km/h), D en movimiento (>= 1.5 km/h).
  */
 fun resolveGear(manual: Gear?, can: CanState, speedKmh: Float, now: Long): Gear {
-    val canGear = can.gear.takeIf { can.isFresh(now) }
+    val canGear = can.gear.takeIf { can.gearIsFresh(now) }
     if (canGear == Gear.R) return Gear.R
     return manual ?: canGear ?: if (speedKmh >= 1.5f) Gear.D else Gear.P
 }
+
