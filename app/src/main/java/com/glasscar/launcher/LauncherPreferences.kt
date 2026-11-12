@@ -11,7 +11,8 @@ data class LauncherConfig(
     val night: Boolean = true,
     val cameraId: String? = null,
     val dashboardCamera: Boolean = false,
-    val nativeAudio: Boolean = false
+    val nativeAudio: Boolean = false,
+    val uiScale: Float = 1f
 )
 
 val AppEntry.componentKey: String get() = "$packageName/$activityName"
@@ -28,6 +29,7 @@ class LauncherPreferences(private val context: Context) {
         recent = prefs.getString("recent", "").orEmpty().split('|').filter(String::isNotBlank),
         widgets = prefs.all.filterKeys { it.startsWith("widget.") }
             .mapNotNull { (k, v) -> (v as? Int)?.let { k.removePrefix("widget.") to it } }.toMap(),
+        uiScale = prefs.getFloat("uiScale", 1f).coerceIn(1f, 1.15f),
         night = prefs.getBoolean("night", true),
         cameraId = prefs.getString("camera", null),
         dashboardCamera = prefs.getBoolean("dashboardCamera", false),
@@ -48,6 +50,7 @@ class LauncherPreferences(private val context: Context) {
         val recent = (keys + _state.value.recent).distinct().take(12)
         prefs.edit().putString("recent", recent.joinToString("|")).apply(); changed()
     }
+    fun setUiScale(value: Float) { prefs.edit().putFloat("uiScale", value.coerceIn(1f, 1.15f)).apply(); changed() }
     fun setNight(value: Boolean) { prefs.edit().putBoolean("night", value).apply(); changed() }
     fun setNativeAudio(value: Boolean) { prefs.edit().putBoolean("nativeAudio", value).apply(); changed() }
     fun setCamera(id: String?) { prefs.edit().putString("camera", id).apply(); changed() }
@@ -68,3 +71,4 @@ fun resolveApp(apps: List<AppEntry>, config: LauncherConfig, slot: String, short
 fun recentApps(apps: List<AppEntry>, config: LauncherConfig): List<AppEntry> =
     config.recent.mapNotNull { key -> apps.firstOrNull { it.componentKey == key } }
         .distinctBy { it.packageName }.take(4)
+

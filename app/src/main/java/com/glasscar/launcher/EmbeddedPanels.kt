@@ -3,6 +3,8 @@ package com.glasscar.launcher
 import android.Manifest
 import android.appwidget.AppWidgetManager
 import android.content.pm.PackageManager
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -54,13 +56,13 @@ fun HostedWidget(id: Int, actions: LauncherActions, modifier: Modifier): Boolean
 
 @Composable
 fun NavigationPanel(drive: DriveState, config: LauncherConfig, apps: List<AppEntry>, actions: LauncherActions,
-    onConfigure: (String) -> Unit, modifier: Modifier) {
+    onConfigure: (String) -> Unit, modifier: Modifier, speed: ResolvedSpeed = ResolvedSpeed(0f, SpeedSource.NONE)) {
     val navigation by MediaListenerService.navigation.collectAsState()
     var follow by remember { mutableStateOf(true) }
     SpatialGlassSurface(modifier, cornerRadius = 26.dp) {
         Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Txt("Mapa", 18.sp, modifier = Modifier.weight(1f))
+                Txt(if (BuildConfig.GOOGLE_MAPS_CONFIGURED) "Google Maps · SDK" else "Ubicación · OSM", 18.sp, modifier = Modifier.weight(1f))
                 SmallAction(if (follow) "Seguir GPS" else "Centrar") { follow = !follow }
                 SmallAction("Abrir") { actions.openSlot("maps", DockShortcuts[0], apps) }
                 SmallAction("⋯") { onConfigure("map_panel") }
@@ -80,6 +82,11 @@ fun NavigationPanel(drive: DriveState, config: LauncherConfig, apps: List<AppEnt
                     Txt("Esperando ubicación GPS", 14.sp, modifier = Modifier.align(Alignment.TopCenter)
                         .background(LocalBackdrop.current.palette.glassFill).padding(8.dp))
                 }
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Txt(if (speed.source != SpeedSource.NONE) "${speed.kmh.toInt()} km/h · ${speed.source.name}" else "Velocidad sin señal", 17.sp,
+                    modifier = Modifier.weight(1f))
+                SmallAction("Vista") { onConfigure("dashboard") }
             }
             if (navigation.title.isNotBlank() || navigation.instruction.isNotBlank()) {
                 Txt(navigation.title, 16.sp)
@@ -179,6 +186,10 @@ fun CameraPanel(config: LauncherConfig, apps: List<AppEntry>, actions: LauncherA
     val cameras = remember(permissionVersion) { availableCameras(context) }
     val cameraId = config.cameraId?.takeIf { it in cameras } ?: cameras.firstOrNull()
     var error by remember(cameraId, permissionVersion) { mutableStateOf<String?>(null) }
+    var ready by remember(cameraId, permissionVersion) { mutableStateOf(false) }
+    var attempt by remember { mutableIntStateOf(0) }
+    val dvrApp = resolveApp(apps, config, "camera", QuickShortcuts[3])
+    val hasWidgets = matchingWidgets(context, dvrApp).isNotEmpty()
     SpatialGlassSurface(modifier, cornerRadius = 26.dp) {
         Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -196,11 +207,16 @@ fun CameraPanel(config: LauncherConfig, apps: List<AppEntry>, actions: LauncherA
                     }
                     cameraId == null || error != null -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Txt(error ?: "El estéreo no expone una cámara a Android", 15.sp)
-                        Txt("Puedes usar el widget o abrir tu aplicación DVR", 13.sp, color = Ultra.Secondary)
-                        if (error != null) SmallAction("Reintentar") { error = null }
-                        SmallAction("Elegir widget") { actions.chooseWidget("camera") }
+                        Txt("Revisa la conexión o abre la aplicación DVR", 15.sp, color = Ultra.Secondary)
+                        if (error != null) SmallAction("Reintentar") { error = null; ready = false; attempt++ }
+                        if (hasWidgets) SmallAction("Elegir widget DVR") { actions.chooseWidget("camera") }
+                        SmallAction("Diagnóstico del estéreo") { onConfigure("diagnostics") }
                     }
-                    else -> key(cameraId) { CameraPreview(cameraId, Modifier.fillMaxSize()) { error = it } }
+                    else -> key(cameraId, attempt, permissionVersion) {
+                        CameraPreview(cameraId, Modifier.fillMaxSize(), onReady = { ready = true }, onError = { error = it })
+                        if (!ready) Txt("Conectando cámara…", 20.sp,
+                            modifier = Modifier.background(LocalBackdrop.current.palette.glassFill).padding(16.dp))
+                    }
                 }
             }
         }
@@ -211,6 +227,7 @@ fun CameraPanel(config: LauncherConfig, apps: List<AppEntry>, actions: LauncherA
 fun CarPlayPanel(config: LauncherConfig, apps: List<AppEntry>, actions: LauncherActions, onConfigure: (String) -> Unit,
     modifier: Modifier) {
     val app = resolveApp(apps, config, "carplay", QuickShortcuts[6])
+    val hasWidgets = matchingWidgets(LocalContext.current, app).isNotEmpty()
     SpatialGlassSurface(modifier, cornerRadius = 30.dp) {
         Column(Modifier.fillMaxSize().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -220,12 +237,16 @@ fun CarPlayPanel(config: LauncherConfig, apps: List<AppEntry>, actions: Launcher
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 val id = config.widgets["carplay"]
                 val shown = id != null && HostedWidget(id, actions, Modifier.fillMaxSize())
-                if (!shown) Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                if (!shown) Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (app != null) Image(app.icon, app.label, Modifier.size(100.dp))
                     Txt(app?.label ?: "Selecciona Tlink5 o tu app de CarPlay", 24.sp)
                     Txt("Conecta el iPhone desde la aplicación del estéreo", 16.sp, color = Ultra.Secondary)
                     SmallAction("Abrir CarPlay") { actions.openSlot("carplay", QuickShortcuts[6], apps) }
-                    SmallAction("Añadir widget si tu app lo ofrece") { actions.chooseWidget("carplay") }
+                    if (hasWidgets) SmallAction("Añadir widget de CarPlay") { actions.chooseWidget("carplay") }
+                    else {
+                        Txt("Esta app no ofrece un widget", 17.sp, color = Ultra.Secondary)
+                        SmallAction("Diagnóstico de integración") { onConfigure("diagnostics") }
+                    }
                 }
             }
         }
@@ -236,6 +257,7 @@ fun CarPlayPanel(config: LauncherConfig, apps: List<AppEntry>, actions: Launcher
 fun SmallAction(label: String, onClick: () -> Unit) {
     Box(Modifier.heightIn(min = 44.dp).bounceClick(onClick = onClick)
         .padding(horizontal = 10.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
-        Txt(label, 13.sp)
+        Txt(label, 15.sp)
     }
 }
+

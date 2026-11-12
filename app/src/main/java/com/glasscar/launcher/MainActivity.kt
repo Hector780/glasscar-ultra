@@ -64,7 +64,7 @@ class MainActivity : ComponentActivity(), LauncherActions {
     override fun onResume() {
         super.onResume()
         enterImmersive()
-        location.start(); media.start(); canBus.start()
+        location.start(); media.start(); canBus.start(); TopwayAudio.start(this)
         permissionVersion.intValue++
         lifecycleScope.launch {
             apps.value = withContext(Dispatchers.Default) { AppsRepository.load(this@MainActivity) }
@@ -72,7 +72,7 @@ class MainActivity : ComponentActivity(), LauncherActions {
             if (recents.isNotEmpty()) preferences.recordRecent(recents)
         }
     }
-    override fun onPause() { location.stop(); media.stop(); canBus.stop(); super.onPause() }
+    override fun onPause() { location.stop(); media.stop(); canBus.stop(); TopwayAudio.stop(); super.onPause() }
     override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus); if (hasFocus) enterImmersive() }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); showDrawer.value = false }
 
@@ -114,7 +114,10 @@ class MainActivity : ComponentActivity(), LauncherActions {
         safeStart(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS), "Acceso a notificaciones")
     }
     override fun setVolume(fraction: Float) {
-        if (preferences.state.value.nativeAudio) { openNativeControls(); return }
+        if (preferences.state.value.nativeAudio) {
+            if (!TopwayAudio.controller.setFraction(fraction)) toast("Sin confirmación de volumen nativo; usa el panel del estéreo")
+            return
+        }
         runCatching { HeadUnitControls.setAndroidVolume(this, fraction) }
             .onFailure { toast("Usa el control de volumen del estéreo") }
     }
@@ -149,3 +152,4 @@ class MainActivity : ComponentActivity(), LauncherActions {
         .getOrElse { toast("No se pudo abrir $label"); false }
     private fun toast(message: String) { Toast.makeText(this, message, Toast.LENGTH_SHORT).show() }
 }
+
