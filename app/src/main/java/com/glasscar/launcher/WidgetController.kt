@@ -1,49 +1,76 @@
 package com.glasscar.launcher
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.appwidget.AppWidgetHost
 import android.appwidget.AppWidgetManager
+import android.appwidget.AppWidgetProviderInfo
 import android.content.Intent
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 
-/** System picker grants widget access; no hidden cross-app Activity embedding or root. */
+/** Only offer providers belonging to the selected app, never unrelated system widgets. */
 class WidgetController(private val activity: ComponentActivity, private val preferences: LauncherPreferences) {
     val host = AppWidgetHost(activity, 4071)
     private var pendingSlot: String? = null
     private var pendingId = -1
     private var configuring = false
-    private val result: androidx.activity.result.ActivityResultLauncher<Intent> = activity.registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { response ->
+    private val result = activity.registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { response ->
         if (response.resultCode != Activity.RESULT_OK) cancel()
         else {
             val id = response.data?.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, pendingId) ?: pendingId
-            val info = AppWidgetManager.getInstance(activity).getAppWidgetInfo(id)
-            if (id < 0 || info == null) cancel()
-            else if (info.configure != null && !configuring) {
-                pendingId = id
-                configuring = true
-                runCatching {
-                    launch(Intent(AppWidgetManager.ACTION_APPWIDGET_CONFIGURE).setComponent(info.configure)
-                        .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id))
-                }.onFailure { cancel() }
-            } else {
-                pendingSlot?.let { slot ->
-                    preferences.state.value.widgets[slot]?.takeIf { it != id }?.let(host::deleteAppWidgetId)
-                    preferences.setWidget(slot, id)
-                }
-                pendingSlot = null; pendingId = -1; configuring = false
-            }
+            // Do not accept an unrelated widget ID returned by an external activity.
+            if (id != pendingId) cancel() else finishBinding()
         }
     }
 
-    private fun launch(intent: Intent) = result.launch(intent)
+    private fun finishBinding() {
+        val info = AppWidgetManager.getInstance(activity).getAppWidgetInfo(pendingId)
+        if (pendingId < 0 || info == null) { cancel(); return }
+        if (info.configure != null && !configuring) {
+            configuring = true
+            runCatching {
+                result.launch(Intent(AppWidgetManager.ACTION_APPWIDGET_CONFIGURE).setComponent(info.configure)
+                    .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, pendingId))
+            }.onFailure { cancel() }
+        } else {
+            pendingSlot?.let { slot ->
+                preferences.state.value.widgets[slot]?.takeIf { it != pendingId }?.let(host::deleteAppWidgetId)
+                preferences.setWidget(slot, pendingId)
+            }
+            pendingSlot = null; pendingId = -1; configuring = false
+        }
+    }
+
     fun choose(slot: String) {
         cancel()
-        pendingSlot = slot
-        pendingId = host.allocateAppWidgetId()
+        val apps = AppsRepository.load(activity)
+        val (appSlot, shortcut) = when (slot) {
+            "map" -> "maps" to DockShortcuts[0]
+            "camera" -> "camera" to QuickShortcuts[3]
+            "carplay" -> "carplay" to QuickShortcuts[6]
+            else -> return
+        }
+        val providers = matchingWidgets(activity, resolveApp(apps, preferences.state.value, appSlot, shortcut))
+        if (providers.isEmpty()) {
+            Toast.makeText(activity, "La aplicación seleccionada no ofrece widgets", Toast.LENGTH_LONG).show()
+            return
+        }
+        AlertDialog.Builder(activity).setTitle("Widget de la aplicación")
+            .setItems(providers.map { it.loadLabel(activity.packageManager) }.toTypedArray()) { _, index -> bind(slot, providers[index]) }
+            .setNegativeButton("Cancelar", null).show()
+    }
+    private fun bind(slot: String, provider: AppWidgetProviderInfo) {
+        pendingSlot = slot; pendingId = host.allocateAppWidgetId()
         runCatching {
-            launch(Intent(AppWidgetManager.ACTION_APPWIDGET_PICK).putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, pendingId))
+            val manager = AppWidgetManager.getInstance(activity)
+            if (manager.bindAppWidgetIdIfAllowed(pendingId, provider.profile, provider.provider, null)) finishBinding()
+            else result.launch(Intent(AppWidgetManager.ACTION_APPWIDGET_BIND)
+                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, pendingId)
+                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_PROVIDER, provider.provider)
+                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_PROVIDER_PROFILE, provider.profile))
         }.onFailure { cancel() }
     }
     fun remove(slot: String) {

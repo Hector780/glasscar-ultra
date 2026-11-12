@@ -11,8 +11,8 @@ android {
         applicationId = "com.glasscar.launcher"
         minSdk = 28
         targetSdk = 34
-        versionCode = 4
-        versionName = "4.0-Ultra"
+        versionCode = 5
+        versionName = "4.1-review"
         val mapsKey = providers.gradleProperty("MAPS_API_KEY").orElse(providers.environmentVariable("MAPS_API_KEY")).orElse("").get()
         resValue("string", "google_maps_key", mapsKey)
         buildConfigField("boolean", "GOOGLE_MAPS_CONFIGURED", mapsKey.isNotBlank().toString())
@@ -66,4 +66,5 @@ dependencies {
     testImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
+
 

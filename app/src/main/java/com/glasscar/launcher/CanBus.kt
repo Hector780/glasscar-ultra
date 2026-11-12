@@ -20,8 +20,8 @@ object CanConfig {
     const val GLASSCAR_ACTION = "com.glasscar.launcher.CAN_UPDATE"
 
     /**
-     * Intents nativos reales de unidades TS10 (Topway), FYT, Microntek y XYAuto
-     * al comunicarse con decodificadores SimpleSoft (XP) RP5-FD-002.
+     * Candidate vendor broadcasts. Support must be verified on the actual firmware;
+     * this list is not a confirmed protocol adapter for any specific head unit.
      */
     val EXTRA_ACTIONS: List<String> = listOf(
         "com.tw.canbus.ACTION_CANBUS_DATA",
@@ -80,6 +80,7 @@ class CanBusSource(private val context: Context) {
         override fun onReceive(ctx: Context, intent: Intent) {
             val extras = intent.extras
             Log.d(CanConfig.LOG_TAG, "action=${intent.action} extras=${describe(extras)}")
+            HardwareDiagnostics.recordCan(intent.action, extras)
             if (extras == null) return
             val speed = parseSpeed(extras)
             val gear = parseGear(extras)
@@ -150,7 +151,7 @@ class CanBusSource(private val context: Context) {
     private fun parseGear(extras: Bundle): Gear? {
         val reverse = parseBoolean(extras, CanConfig.REVERSE_KEYS)
         if (reverse == true) return Gear.R
-        if (reverse == false && _state.value.gear == Gear.R) return Gear.P
+        // Leaving reverse does not prove Park: wait for a real gear value.
         val raw = valueOf(extras, CanConfig.GEAR_KEYS)?.toString() ?: return null
         return when (raw.trim().lowercase(Locale.ROOT)) {
             "p", "park", "parking", "0" -> Gear.P
@@ -190,11 +191,13 @@ fun resolveSpeed(drive: DriveState, can: CanState, now: Long): ResolvedSpeed {
  * 1. Reversa reportada por CAN (seguridad: siempre gana).
  * 2. Selección manual tocando la píldora.
  * 3. Marcha reportada por CAN.
- * 4. Automática: P detenido (< 1.5 km/h), D en movimiento (>= 1.5 km/h).
+ * 4. Sin lectura: desconocida. La velocidad no permite inferir la marcha.
  */
-fun resolveGear(manual: Gear?, can: CanState, speedKmh: Float, now: Long): Gear {
+@Suppress("UNUSED_PARAMETER")
+fun resolveGear(manual: Gear?, can: CanState, speedKmh: Float, now: Long): Gear? {
     val canGear = can.gear.takeIf { can.gearIsFresh(now) }
     if (canGear == Gear.R) return Gear.R
-    return manual ?: canGear ?: if (speedKmh >= 1.5f) Gear.D else Gear.P
+    return manual ?: canGear
 }
+
 

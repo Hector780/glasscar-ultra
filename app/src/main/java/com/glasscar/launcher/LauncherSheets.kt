@@ -1,5 +1,8 @@
 package com.glasscar.launcher
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -31,10 +34,11 @@ fun LauncherSheet(sheet: String, apps: List<AppEntry>, config: LauncherConfig, p
     drive: DriveState, weather: WeatherInfo, status: DeviceStatus, can: CanState, actions: LauncherActions,
     onDismiss: () -> Unit, onChoose: (String) -> Unit, onRefreshWeather: () -> Unit) {
     val context = LocalContext.current
-    val menus = setOf("settings", "status", "weather_detail", "map_panel", "camera_panel", "carplay_panel", "dashboard")
+    val menus = setOf("settings", "status", "weather_detail", "map_panel", "camera_panel", "carplay_panel", "dashboard", "diagnostics")
     val titles = mapOf("settings" to "Personalizar tablero", "status" to "Conexiones y vehículo",
         "weather_detail" to "Clima exterior", "map_panel" to "Panel del mapa", "camera_panel" to "Cámara frontal",
         "carplay_panel" to "CarPlay / Tlink5", "dashboard" to "Vista principal",
+        "diagnostics" to "Diagnóstico del estéreo",
         "music" to "Aplicación de música", "maps" to "Aplicación de mapas", "camera" to "Aplicación DVR",
         "phone" to "Aplicación de teléfono", "carplay" to "Aplicación de CarPlay", "weather" to "Aplicación de clima")
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
@@ -55,6 +59,10 @@ fun LauncherSheet(sheet: String, apps: List<AppEntry>, config: LauncherConfig, p
                                     "carplay" to "CarPlay / Tlink5", "weather" to "Clima", "obd" to "Telemetría").forEach { (slot, label) ->
                                     SettingRow(label, configuredLabel(slot, config, apps)) { onChoose(slot) }
                                 }
+                                SettingRow("Tamaño de interfaz", if (config.uiScale > 1f) "Grande" else "Adaptado a pantalla") {
+                                    preferences.setUiScale(if (config.uiScale > 1f) 1f else 1.15f)
+                                }
+                                SettingRow("Diagnóstico del estéreo", "Modelo, audio, cámara y CAN") { onChoose("diagnostics") }
                                 SettingRow("Control de volumen", if (config.nativeAudio) "Panel real del estéreo" else "Volumen Android") {
                                     preferences.setNativeAudio(!config.nativeAudio)
                                 }
@@ -62,6 +70,22 @@ fun LauncherSheet(sheet: String, apps: List<AppEntry>, config: LauncherConfig, p
                                 SettingRow("Música e indicaciones de Maps", "Permisos de notificaciones") { actions.openNotificationAccess() }
                                 SettingRow("Recientes de todo Android", "Permiso opcional de uso de aplicaciones") { actions.openUsageAccess() }
                                 SettingRow("Conexiones y voltaje", "Ver estado") { onChoose("status") }
+                            }
+                            "diagnostics" -> {
+                                var report by remember { mutableStateOf("") }
+                                LaunchedEffect(apps, config, can) {
+                                    while (true) {
+                                        report = HardwareDiagnostics.report(context, apps, config, can)
+                                        kotlinx.coroutines.delay(1000)
+                                    }
+                                }
+                                BodyText("Con el auto estacionado, usa los botones de volumen del volante y observa si cambia STREAM_MUSIC. El reporte permite identificar el equipo y preparar su integración.")
+                                SmallAction("Copiar diagnóstico") {
+                                    context.getSystemService(android.content.ClipboardManager::class.java)
+                                        .setPrimaryClip(android.content.ClipData.newPlainText("GlassCar diagnóstico", report))
+                                    android.widget.Toast.makeText(context, "Diagnóstico copiado", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                                BodyText(report)
                             }
                             "status" -> {
                                 BodyText("Wi-Fi: ${if (status.wifi) "conectado" else "sin conexión Wi-Fi"}")
@@ -100,22 +124,27 @@ fun LauncherSheet(sheet: String, apps: List<AppEntry>, config: LauncherConfig, p
                                 BodyText(if (BuildConfig.GOOGLE_MAPS_CONFIGURED) "Mapa integrado: Google Maps." else "Mapa de ubicación: OpenStreetMap. Las indicaciones de tu ruta se leen de Google Maps cuando habilitas el acceso a notificaciones.")
                                 SettingRow("Aplicación de navegación", configuredLabel("maps", config, apps)) { onChoose("maps") }
                                 SmallAction("Permitir indicaciones de Google Maps") { actions.openNotificationAccess() }
-                                SmallAction("Usar widget de una app de mapas") { actions.chooseWidget("map"); onDismiss() }
+                                if (matchingWidgets(context, resolveApp(apps, config, "maps", DockShortcuts[0])).isNotEmpty())
+                                    SmallAction("Usar widget de la app seleccionada") { actions.chooseWidget("map"); onDismiss() }
                                 if (config.widgets["map"] != null) SmallAction("Volver al mapa integrado") { actions.removeWidget("map") }
                             }
                             "camera_panel" -> {
                                 SettingRow("Aplicación DVR", configuredLabel("camera", config, apps)) { onChoose("camera") }
                                 SmallAction("Permitir acceso a cámara") { actions.requestCamera() }
                                 val cameras = availableCameras(context)
-                                if (cameras.isEmpty()) BodyText("El fabricante puede reservar la cámara para su app DVR. En ese caso, usa su widget o el acceso a la aplicación.")
+                                if (cameras.isEmpty()) BodyText("La cámara DVR no está expuesta a Android. Revisa el diagnóstico para identificar la integración del fabricante.")
                                 cameras.forEach { id -> SettingRow("Cámara Android $id", if (config.cameraId == id) "Seleccionada" else "Seleccionar") { preferences.setCamera(id); actions.removeWidget("camera") } }
-                                SmallAction("Usar widget de DVR") { actions.chooseWidget("camera"); onDismiss() }
+                                if (matchingWidgets(context, resolveApp(apps, config, "camera", QuickShortcuts[3])).isNotEmpty())
+                                    SmallAction("Usar widget de DVR") { actions.chooseWidget("camera"); onDismiss() }
+                                SmallAction("Diagnóstico de cámara") { onChoose("diagnostics") }
                                 if (config.widgets["camera"] != null) SmallAction("Quitar widget") { actions.removeWidget("camera") }
                             }
                             "carplay_panel" -> {
                                 SettingRow("Aplicación", configuredLabel("carplay", config, apps)) { onChoose("carplay") }
-                                BodyText("Al pasar a esta página se abre tu app de CarPlay. Si Tlink ofrece un widget, puedes mostrarlo dentro del tablero.")
-                                SmallAction("Elegir widget de CarPlay") { actions.chooseWidget("carplay"); onDismiss() }
+                                BodyText("La aplicación se abre al pasar a esta página. La integración dentro del tablero todavía requiere comprobar las capacidades del estéreo.")
+                                if (matchingWidgets(context, resolveApp(apps, config, "carplay", QuickShortcuts[6])).isNotEmpty())
+                                    SmallAction("Elegir widget de CarPlay") { actions.chooseWidget("carplay"); onDismiss() }
+                                SmallAction("Diagnóstico de integración") { onChoose("diagnostics") }
                                 if (config.widgets["carplay"] != null) SmallAction("Quitar widget") { actions.removeWidget("carplay") }
                             }
                         }
@@ -167,28 +196,41 @@ internal fun BodyText(text: String) {
 
 @Composable
 fun LyricsContent(media: MediaInfo, position: Long, modifier: Modifier) {
-    var lyrics by remember(media.title, media.artist) { mutableStateOf<Lyrics?>(null) }
-    val list = rememberLazyListState()
+    var lyrics by remember(media.title, media.artist, media.durationMs) { mutableStateOf<Lyrics?>(null) }
+    var plainPage by remember(media.title, media.artist) { mutableIntStateOf(0) }
     LaunchedEffect(media.title, media.artist, media.durationMs) { lyrics = LyricsSource.load(media) }
     val current = lyrics
-    Column(modifier) {
-        Txt("Letras · LRCLIB", 10.sp, color = Ultra.Secondary)
+    Column(modifier, verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
         when {
             current == null -> BodyText("Buscando letra…")
             current.message.isNotBlank() -> BodyText(current.message)
             current.lines.isNotEmpty() -> {
                 val active = current.lines.indexOfLast { it.atMs <= position }
-                LaunchedEffect(active) { if (active >= 0) list.animateScrollToItem((active - 1).coerceAtLeast(0)) }
-                LazyColumn(Modifier.weight(1f), state = list, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(current.lines.size) { index ->
-                        BasicText(current.lines[index].text, style = TextStyle(fontSize = 19.sp,
-                            fontWeight = if (index == active) FontWeight.Bold else FontWeight.Normal,
-                            color = if (index == active) LocalBackdrop.current.palette.textPrimary else LocalBackdrop.current.palette.textSecondary))
+                AnimatedContent(active, modifier = Modifier.weight(1f).fillMaxWidth(), label = "lyric-line") { index ->
+                    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally) {
+                        current.lines.getOrNull(index - 1)?.let { LyricText(it.text, false) }
+                        if (index < 0) LyricText("♪", true)
+                        else current.lines.getOrNull(index)?.let { LyricText(it.text.ifBlank { "♪" }, true) }
+                        current.lines.getOrNull(index + 1)?.let { LyricText(it.text, false) }
                     }
                 }
             }
-            current.plain.isNotBlank() -> Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { BodyText(current.plain) }
+            current.plain.isNotBlank() -> {
+                val pages = current.plain.lineSequence().filter(String::isNotBlank).toList().chunked(2)
+                pages.getOrNull(plainPage)?.forEach { LyricText(it, true) }
+                if (pages.size > 1) SmallAction("Sin sincronización · siguiente") { plainPage = (plainPage + 1) % pages.size }
+            }
             else -> BodyText("No hay letra disponible para esta canción")
         }
     }
+}
+
+@Composable
+private fun LyricText(text: String, active: Boolean) {
+    BasicText(text, modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+        style = TextStyle(fontSize = if (active) 26.sp else 16.sp, lineHeight = if (active) 30.sp else 19.sp,
+            textAlign = TextAlign.Center, fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+            color = if (active) LocalBackdrop.current.palette.textPrimary else LocalBackdrop.current.palette.textSecondary),
+        maxLines = if (active) 2 else 1, overflow = TextOverflow.Ellipsis)
 }

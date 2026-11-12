@@ -33,7 +33,7 @@ fun availableCameras(context: Context): List<String> = runCatching {
 
 /** Only cameras actually exposed by Android are opened. Vendor-only DVR apps use their widget/shortcut. */
 private class CameraSession(private val context: Context, private val view: TextureView, private val id: String,
-    private val onError: (String) -> Unit) : TextureView.SurfaceTextureListener {
+    private val onReady: () -> Unit, private val onError: (String) -> Unit) : TextureView.SurfaceTextureListener {
     private var camera: CameraDevice? = null
     private var session: CameraCaptureSession? = null
     private var surface: Surface? = null
@@ -42,10 +42,22 @@ private class CameraSession(private val context: Context, private val view: Text
     @Volatile private var running = false
     @Volatile private var opening = false
     @Volatile private var generation = 0
+    private var hasFrame = false
+    private val main = Handler(context.mainLooper)
+    private var timeout: Runnable? = null
     init { view.surfaceTextureListener = this }
 
-    fun resume() { running = true; if (view.isAvailable) open() }
+    fun resume() {
+        if (running) return
+        running = true
+        hasFrame = false
+        val watch = Runnable { if (running && !hasFrame) fail("La cámara no entregó imagen. Revisa el DVR o selecciona otra cámara.") }
+        timeout = watch
+        main.postDelayed(watch, 5000L)
+        if (view.isAvailable) open()
+    }
     fun pause() {
+        timeout?.let(main::removeCallbacks); timeout = null
         running = false; opening = false; generation++
         session?.close(); session = null
         camera?.close(); camera = null
@@ -99,18 +111,24 @@ private class CameraSession(private val context: Context, private val view: Text
     private fun fail(message: String) { Handler(context.mainLooper).post { onError(message) }; pause() }
     override fun onSurfaceTextureAvailable(t: SurfaceTexture, width: Int, height: Int) { if (running) open() }
     override fun onSurfaceTextureSizeChanged(t: SurfaceTexture, width: Int, height: Int) = Unit
-    override fun onSurfaceTextureUpdated(t: SurfaceTexture) = Unit
+    override fun onSurfaceTextureUpdated(t: SurfaceTexture) {
+        if (running && !hasFrame) {
+            hasFrame = true
+            timeout?.let(main::removeCallbacks); timeout = null
+            onReady()
+        }
+    }
     override fun onSurfaceTextureDestroyed(t: SurfaceTexture): Boolean { val active = running; pause(); running = active; return true }
 }
 
 @Composable
-fun CameraPreview(cameraId: String, modifier: Modifier, onError: (String) -> Unit) {
+fun CameraPreview(cameraId: String, modifier: Modifier, onReady: () -> Unit = {}, onError: (String) -> Unit) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var session by remember(cameraId) { mutableStateOf<CameraSession?>(null) }
     AndroidView(
         factory = { TextureView(it).also { view ->
-            session = CameraSession(it, view, cameraId, onError)
+            session = CameraSession(it, view, cameraId, onReady, onError)
             if (ContextCompat.checkSelfPermission(it, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
                 lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) session?.resume()
         } },
@@ -125,3 +143,4 @@ fun CameraPreview(cameraId: String, modifier: Modifier, onError: (String) -> Uni
         onDispose { lifecycle.removeObserver(observer); activeSession?.dispose() }
     }
 }
+

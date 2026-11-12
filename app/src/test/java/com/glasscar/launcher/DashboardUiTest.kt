@@ -68,6 +68,25 @@ class DashboardUiTest {
         compose.onNodeWithText("Actualizar ahora").assertIsDisplayed()
         screenshot("weather-details")
     }
+    @Test fun instrumentsDoNotPresentEstimatedParkWithoutCan() {
+        compose.onNodeWithText("Instrumentos").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("SIN LECTURA DE MARCHA CAN").assertIsDisplayed()
+        screenshot("instruments-no-can")
+    }
+    @Test fun carPlayWithoutProviderDoesNotOfferUnrelatedWidgets() {
+        compose.onNodeWithText("CarPlay").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("Esta app no ofrece un widget").assertIsDisplayed()
+        compose.onNodeWithText("Añadir widget de CarPlay").assertDoesNotExist()
+        screenshot("carplay-no-widget")
+    }
+    @Test @Config(qualifiers = "w1920dp-h1080dp-land-mdpi")
+    fun largeLowDensityHeadUnitKeepsReadableControls() {
+        compose.onNodeWithContentDescription("Cambiar página de accesos").assertIsDisplayed()
+        compose.onNodeWithText("Clima exterior").assertIsDisplayed()
+        screenshot("dashboard-1920-mdpi")
+    }
     private fun screenshot(name: String) {
         compose.waitForIdle()
         lateinit var bitmap: Bitmap
@@ -81,3 +100,4 @@ class DashboardUiTest {
         file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG,100,it) }
     }
 }
+

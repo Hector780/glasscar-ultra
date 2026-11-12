@@ -1,6 +1,8 @@
-# GlassCar Ultra 4.0
+# GlassCar Ultra 4.1 · revisión en equipo
 
 Launcher Android horizontal para el estéreo. La versión 4.0 incorpora la revisión de `IMG_0419.mp4`: tablero con mapa, música ampliada, accesos configurables y páginas de CarPlay, cámara e instrumentos.
+
+La revisión 4.1 responde al nuevo video `IMG_0421.mp4`: mejora carátula, letras, escala, accesos y clima; elimina la marcha estimada y añade diagnóstico del estéreo. **La integración de las apps Google Maps/Tlink5/DVR y del volumen MCU sigue pendiente de identificar el firmware.** Ver [revisión y pendientes](docs/VIDEO-REVIEW-4.1.md).
 
 ## Uso
 
@@ -23,7 +25,7 @@ Launcher Android horizontal para el estéreo. La versión 4.0 incorpora la revis
 | Brillo | Ajuste real `Settings.System`, con permiso para modificar ajustes y mínimo de 12 %. Se elimina la atenuación independiente de la ventana. Si el firmware no respeta este ajuste, usar su panel nativo. |
 | Voltaje | Sólo aparece un valor si llega una lectura CAN reconocida y reciente; de otro modo indica que no está disponible. Se eliminó el «12V» fijo. |
 
-El APK no sustituye los instrumentos del automóvil. La selección manual de marcha en la página de instrumentos es visual; se identifica como tal y no envía comandos al vehículo. La velocidad GPS y las lecturas CAN dejan de tratarse como actuales al caducar.
+El APK no sustituye los instrumentos del automóvil. La selección manual de marcha en la página de instrumentos es visual; se identifica como tal y no envía comandos al vehículo. La velocidad GPS y las lecturas CAN dejan de tratarse como actuales al caducar. Sin lectura CAN no se infiere P/D: la marcha se muestra desconocida.
 
 ## Compilar y validar
 
@@ -38,3 +40,4 @@ APK: `app/build/outputs/apk/debug/app-debug.apk` y `app/build/outputs/apk/releas
 Se conserva la firma de desarrollo que utilizaba el proyecto, también en la variante release. Una compilación de otra máquina puede tener un certificado diferente del APK instalado; Android no permite actualizar una instalación con otra firma. Para actualizaciones estables debe configurarse la clave original de firma fuera del repositorio. No desinstales la versión anterior sin guardar tus ajustes.
 
 Ver [seguimiento de los 30 puntos del video](docs/VIDEO-REVIEW.md). Las integraciones de hardware requieren una prueba en el estéreo real, con el iPhone conectado para CarPlay.
+

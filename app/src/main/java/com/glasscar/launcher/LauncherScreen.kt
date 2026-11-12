@@ -81,6 +81,9 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -139,6 +142,36 @@ private val AccentReverse = Accent(Ultra.Amber, Color(0xFFFF453A))
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun LauncherRoot(
+    apps: List<AppEntry>,
+    driveFlow: StateFlow<DriveState>,
+    mediaFlow: StateFlow<MediaInfo>,
+    canFlow: StateFlow<CanState>,
+    weatherSource: WeatherSource,
+    showDrawer: Boolean,
+    onToggleDrawer: () -> Unit,
+    onCloseDrawer: () -> Unit,
+    actions: LauncherActions,
+    preferences: LauncherPreferences? = null,
+    permissionVersion: Int = 0
+) {
+    val context = LocalContext.current
+    val prefs = preferences ?: remember { LauncherPreferences(context) }
+    val config by prefs.state.collectAsState()
+    val density = LocalDensity.current
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        // Some head units report mdpi even on a 1920px panel. Keep a usable cockpit scale.
+        val fit = min(maxWidth.value / 1024f, maxHeight.value / 600f).coerceAtLeast(1f)
+        val scale = fit * config.uiScale
+        CompositionLocalProvider(LocalDensity provides Density(density.density * scale, density.fontScale)) {
+            LauncherContent(apps, driveFlow, mediaFlow, canFlow, weatherSource, showDrawer,
+                onToggleDrawer, onCloseDrawer, actions, prefs, permissionVersion)
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun LauncherContent(
     apps: List<AppEntry>,
     driveFlow: StateFlow<DriveState>,
     mediaFlow: StateFlow<MediaInfo>,
@@ -245,14 +278,14 @@ fun LauncherRoot(
             }) {
             Row(Modifier.fillMaxSize().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 SpatialDock(status, drive.hasFix, apps, config, actions, onToggleDrawer, configure,
-                    Modifier.width(84.dp).fillMaxHeight())
+                    Modifier.width(92.dp).fillMaxHeight())
                 Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(Modifier.fillMaxWidth().height(42.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
                         listOf("Tablero", "CarPlay", "Cámara", "Instrumentos").forEachIndexed { index, name ->
                             Box(Modifier.weight(1f).clip(RoundedCornerShape(18.dp))
                                 .background(if (!showDrawer && pager.currentPage == index) palette.pillFill else Color.Transparent)
                                 .bounceClick { onCloseDrawer(); scope.launch { pager.animateScrollToPage(index) } }
-                                .padding(vertical = 10.dp), contentAlignment = Alignment.Center) { Txt(name, 14.sp, FontWeight.SemiBold) }
+                                .padding(vertical = 10.dp), contentAlignment = Alignment.Center) { Txt(name, 17.sp, FontWeight.SemiBold) }
                         }
                     }
                     Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -347,14 +380,14 @@ private fun SpatialDock(status: DeviceStatus, hasFix: Boolean, apps: List<AppEnt
             }
             Spacer(Modifier.weight(1f))
             if (shown.isEmpty()) DockShortcuts.forEachIndexed { i, shortcut ->
-                Box(Modifier.height(62.dp).fillMaxWidth().combinedClickable(onClick = { actions.openSlot(slots[i], shortcut, apps) },
+                Box(Modifier.height(70.dp).fillMaxWidth().combinedClickable(onClick = { actions.openSlot(slots[i], shortcut, apps) },
                     onLongClick = { configure(slots[i]) }), contentAlignment = Alignment.Center) {
                     AppSquircleIcon(shortcut.glyph, shortcut.colors, 46.dp, iconResName = shortcut.iconResName)
                 }
             } else shown.forEach { app ->
-                Box(Modifier.height(62.dp).fillMaxWidth().combinedClickable(onClick = { actions.open(app) },
+                Box(Modifier.height(70.dp).fillMaxWidth().combinedClickable(onClick = { actions.open(app) },
                     onLongClick = { configure("settings") }).semantics { contentDescription = "Reciente: ${app.label}" }, contentAlignment = Alignment.Center) {
-                    AppIcon(app, Modifier.size(48.dp))
+                    AppIcon(app, Modifier.size(60.dp))
                 }
             }
             Spacer(Modifier.weight(1f))
@@ -423,33 +456,19 @@ private fun DockButton(shortcut: Shortcut, active: Boolean, onClick: () -> Unit)
 // =====================================================================
 
 @Composable
-private fun Dashboard(drive: DriveState, speed: ResolvedSpeed, gear: Gear, gearIsManual: Boolean,
+private fun Dashboard(drive: DriveState, speed: ResolvedSpeed, gear: Gear?, gearIsManual: Boolean,
     onGearSelected: (Gear) -> Unit, onGearAuto: () -> Unit, media: MediaInfo, weather: WeatherInfo,
     apps: List<AppEntry>, status: DeviceStatus, actions: LauncherActions,
     config: LauncherConfig = LauncherConfig(), configure: (String) -> Unit = {}, can: CanState = CanState(), permissionVersion: Int = 0) {
     Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Column(Modifier.weight(0.55f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.weight(0.52f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (config.dashboardCamera) CameraPanel(config, apps, actions, configure, permissionVersion, Modifier.weight(1f).fillMaxWidth())
             else NavigationPanel(drive, config, apps, actions, configure, Modifier.weight(1f).fillMaxWidth())
-            SpatialGlassSurface(Modifier.fillMaxWidth().height(72.dp), cornerRadius = 24.dp) {
-                Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Txt(if (speed.source == SpeedSource.NONE) "—" else speed.kmh.roundToInt().toString(), 36.sp, FontWeight.Bold)
-                    Column(Modifier.weight(1f)) {
-                        Txt("km/h · ${if (speed.source == SpeedSource.NONE) "sin señal" else speed.source.name}", 12.sp)
-                        Txt(tripText(drive, speed.source), 12.sp, color = Ultra.Secondary)
-                    }
-                    Txt(can.gear?.takeIf { can.gearIsFresh(SystemClock.elapsedRealtime()) }?.name ?: "—", 24.sp, FontWeight.Bold)
-                    SmallAction("Vista") { configure("dashboard") }
-                }
-            }
+            QuickAppsWidget(apps, status, actions, Modifier.fillMaxWidth().height(100.dp), config, configure)
         }
-        Column(Modifier.weight(0.45f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            NowPlayingCard(media, apps, actions, Modifier.weight(0.56f).fillMaxWidth(), configure)
-            Row(Modifier.weight(0.44f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                WeatherWidget(weather, drive, Modifier.weight(0.44f).fillMaxHeight()) { configure("weather_detail") }
-                QuickAppsWidget(apps, status, actions, Modifier.weight(0.56f).fillMaxHeight(), config, configure)
-            }
+        Column(Modifier.weight(0.48f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            NowPlayingCard(media, apps, actions, Modifier.weight(0.64f).fillMaxWidth(), configure)
+            WeatherWidget(weather, drive, Modifier.weight(0.36f).fillMaxWidth()) { configure("weather_detail") }
         }
     }
 }
@@ -460,7 +479,7 @@ private fun Dashboard(drive: DriveState, speed: ResolvedSpeed, gear: Gear, gearI
 private fun ClusterCard(
     drive: DriveState,
     speed: ResolvedSpeed,
-    gear: Gear,
+    gear: Gear?,
     gearIsManual: Boolean,
     onGearSelected: (Gear) -> Unit,
     onGearAuto: () -> Unit,
@@ -515,7 +534,7 @@ private fun ClusterCard(
                         Brush.verticalGradient(listOf(Color(0xFF0B132B), Color(0xFF1D3557)))
                     }
                     Txt(
-                        animatedSpeed.roundToInt().toString(), 96.sp, FontWeight.Bold,
+                        if (speed.source == SpeedSource.NONE) "—" else animatedSpeed.roundToInt().toString(), 96.sp, FontWeight.Bold,
                         color = Color.Unspecified,
                         style = TextStyle(
                             brush = speedBrush,
@@ -636,7 +655,7 @@ private fun SpeedArc(speed: Float, accentStart: Color, accentEnd: Color, modifie
 }
 
 @Composable
-private fun GearSelector(gear: Gear, manual: Boolean, onSelect: (Gear) -> Unit, onAuto: () -> Unit) {
+private fun GearSelector(gear: Gear?, manual: Boolean, onSelect: (Gear) -> Unit, onAuto: () -> Unit) {
     val select by rememberUpdatedState(onSelect)
     val auto by rememberUpdatedState(onAuto)
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -682,7 +701,7 @@ private fun GearSelector(gear: Gear, manual: Boolean, onSelect: (Gear) -> Unit, 
         }
         Spacer(Modifier.height(6.dp))
         Txt(
-            if (manual) "SELECCIÓN VISUAL · NO CONTROLA EL VEHÍCULO" else "INDICACIÓN ESTIMADA SI NO HAY CAN",
+            if (manual) "SELECCIÓN VISUAL · NO CONTROLA EL VEHÍCULO" else if (gear == null) "SIN LECTURA DE MARCHA CAN" else "MARCHA RECIBIDA · CAN",
             10.sp, FontWeight.Bold, Ultra.Secondary, spacing = 1.5.sp
         )
     }
@@ -727,8 +746,8 @@ private fun NowPlayingCard(media: MediaInfo, apps: List<AppEntry>, actions: Laun
         Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f).combinedClickable(onClick = openMusic, onLongClick = { configure("music") })) {
-                    Txt(title, 19.sp, FontWeight.Bold)
-                    Txt(subtitle, 13.sp, color = Ultra.Secondary)
+                    Txt(title, 22.sp, FontWeight.Bold)
+                    Txt(subtitle, 15.sp, color = Ultra.Secondary)
                 }
                 SmallAction(if (showLyrics) "Carátula" else "Letra") { showLyrics = !showLyrics }
             }
@@ -736,9 +755,12 @@ private fun NowPlayingCard(media: MediaInfo, apps: List<AppEntry>, actions: Laun
                 when {
                     !media.hasAccess -> SmallAction("Permitir acceso a música") { actions.openNotificationAccess() }
                     showLyrics && media.hasSession -> LyricsContent(media, position, Modifier.fillMaxSize())
-                    else -> Box(Modifier.fillMaxSize().clip(RoundedCornerShape(18.dp)).background(PlaceholderArt)
+                    else -> Box(Modifier.fillMaxSize().clip(RoundedCornerShape(18.dp)).background(media.dominant?.copy(alpha = 0.25f) ?: LocalBackdrop.current.palette.pillFill)
                         .combinedClickable(onClick = openMusic, onLongClick = { configure("music") }), contentAlignment = Alignment.Center) {
-                        media.art?.let { Image(it, "Carátula de ${media.title}", Modifier.fillMaxSize(), contentScale = ContentScale.Fit) }
+                        media.art?.let {
+                            Image(it, null, Modifier.fillMaxSize().blur(24.dp), contentScale = ContentScale.Crop, alpha = 0.4f)
+                            Image(it, "Carátula de ${media.title}", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                        }
                             ?: GlyphIcon(Glyph.Note, Modifier.size(48.dp))
                     }
                 }
@@ -782,15 +804,17 @@ private fun RoundGlassButton(glyph: Glyph, size: Dp, fill: Color, onClick: () ->
 @Composable
 private fun WeatherWidget(weather: WeatherInfo, drive: DriveState, modifier: Modifier, onClick: () -> Unit) {
     SpatialGlassSurface(modifier.bounceClick(onClick = onClick), cornerRadius = 24.dp) {
-        Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.SpaceBetween) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                WeatherGlyph(weather.code, Modifier.size(30.dp))
-                Spacer(Modifier.weight(1f))
-                Txt(weather.tempC?.let { "$it°" } ?: "—°", 30.sp, FontWeight.Medium)
+        Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                WeatherGlyph(weather.code, Modifier.size(42.dp))
+                Txt(weather.tempC?.let { "$it°" } ?: "—°", 40.sp, FontWeight.Bold)
+                Column(Modifier.weight(1f)) {
+                    Txt(weather.description, 17.sp, FontWeight.Medium)
+                    Txt("Clima exterior", 13.sp, color = Ultra.Secondary)
+                }
             }
-            Txt(weather.description, 13.sp)
-            Txt(listOfNotNull(weather.windKmh?.let { "Viento $it km/h" }, weather.humidityPct?.let { "$it%" }).joinToString(" · "), 11.sp, color = Ultra.Secondary)
-            Txt(if (weather.error != null) "Sin conexión · ver detalle" else "${weather.source} · ${weatherTime(weather.observedAt)}", 10.sp, color = Ultra.Secondary)
+            Txt(listOfNotNull(weather.windKmh?.let { "Viento $it km/h" }, weather.humidityPct?.let { "Humedad $it%" }).joinToString(" · "), 16.sp)
+            Txt(if (weather.error != null) "Sin conexión · ver detalle" else "${weather.source} · ${weatherTime(weather.observedAt)}", 12.sp, color = Ultra.Secondary)
         }
     }
 }
@@ -836,29 +860,23 @@ private fun QuickAppsWidget(apps: List<AppEntry>, status: DeviceStatus, actions:
     val defaults = listOf(QuickShortcuts[1], QuickShortcuts[4], QuickShortcuts[3], QuickShortcuts[6],
         QuickShortcuts[0], QuickShortcuts[2], QuickShortcuts[5], QuickShortcuts[7])
     SpatialGlassSurface(modifier, cornerRadius = 24.dp) {
-        BoxWithConstraints(Modifier.fillMaxSize().padding(10.dp)) {
-            val iconSize = ((maxHeight - 54.dp) / 2 - 16.dp).coerceIn(32.dp, 54.dp)
-            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Txt("Accesos", 12.sp, modifier = Modifier.weight(1f))
-                    Box(Modifier.height(30.dp).bounceClick { page = 1 - page }, contentAlignment = Alignment.Center) { Txt("${page + 1}/2 ›", 13.sp) }
-                }
-                for (row in 0..1) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    for (column in 0..1) {
-                        val index = page * 4 + row * 2 + column
-                        val default = defaults[index]
-                        val slot = listOf("music", "maps", "camera", "carplay").getOrNull(index) ?: "quick.$index"
-                        val target = resolveApp(apps, config, slot, default)
-                        Column(Modifier.weight(1f).combinedClickable(
-                            onClick = { if (target == null) configure(slot) else actions.open(target) }, onLongClick = { configure(slot) }),
-                            horizontalAlignment = Alignment.CenterHorizontally) {
-                            if (target != null) AppIcon(target, Modifier.size(iconSize))
-                            else AppSquircleIcon(default.glyph, default.colors, iconSize, iconResName = default.iconResName)
-                            Txt(target?.label ?: default.title, 10.sp)
-                        }
-                    }
+        Row(Modifier.fillMaxSize().padding(8.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            for (column in 0..3) {
+                val index = page * 4 + column
+                val default = defaults[index]
+                val slot = listOf("music", "maps", "camera", "carplay").getOrNull(index) ?: "quick.$index"
+                val target = resolveApp(apps, config, slot, default)
+                Column(Modifier.weight(1f).fillMaxHeight().combinedClickable(
+                    onClick = { if (target == null) configure(slot) else actions.open(target) }, onLongClick = { configure(slot) }),
+                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                    if (target != null) AppIcon(target, Modifier.size(56.dp))
+                    else AppSquircleIcon(default.glyph, default.colors, 56.dp, iconResName = default.iconResName)
+                    Txt(target?.label ?: default.title, 13.sp)
                 }
             }
+            Box(Modifier.width(38.dp).fillMaxHeight().bounceClick { page = 1 - page }
+                .semantics { contentDescription = "Cambiar página de accesos" }, contentAlignment = Alignment.Center) { Txt("${page + 1}/2", 14.sp) }
         }
     }
 }
@@ -1063,4 +1081,5 @@ private fun DashboardPreview() {
         )
     }
 }
+
 

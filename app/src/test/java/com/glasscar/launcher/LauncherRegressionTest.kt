@@ -114,4 +114,26 @@ class LauncherRegressionTest {
         assertFalse(restored.night); assertEquals("usb1", restored.cameraId); assertTrue(restored.dashboardCamera)
         assertTrue(restored.nativeAudio); assertEquals(7, restored.widgets["map"])
     }
+    @Test fun missingOrStaleCanNeverInventsParkOrDrive() {
+        assertNull(resolveGear(null, CanState(), 0f, 10000L))
+        assertNull(resolveGear(null, CanState(), 80f, 10000L))
+        assertNull(resolveGear(null, CanState(gear = Gear.D, gearAt = 1000), 80f, 10000L))
+        assertEquals(Gear.N, resolveGear(null, CanState(gear = Gear.N, gearAt = 9000), 0f, 10000L))
+        assertEquals(Gear.R, resolveGear(Gear.S, CanState(gear = Gear.R, gearAt = 9000), 0f, 10000L))
+    }
+    @Test fun interfaceScaleSurvivesRestartAndIsBounded() {
+        val prefs = LauncherPreferences(context)
+        prefs.setUiScale(3f)
+        assertEquals(1.15f, LauncherPreferences(context).state.value.uiScale, 0.001f)
+        prefs.setUiScale(0f)
+        assertEquals(1f, LauncherPreferences(context).state.value.uiScale, 0.001f)
+    }
+    @Test fun hardwareReportNamesTheSelectedAppsAndDoesNotInventCanReadings() {
+        val report = HardwareDiagnostics.report(context, emptyList(), LauncherConfig(), CanState())
+        assertTrue(report.contains("CAN marcha: sin lectura vigente"))
+        assertTrue(report.contains("STREAM_MUSIC:"))
+        assertTrue(report.contains("carplay: no asignada"))
+        assertTrue(matchingWidgets(context, null).isEmpty())
+    }
 }
+
