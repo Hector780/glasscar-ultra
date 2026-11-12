@@ -12,8 +12,8 @@ android {
         resValue("string", "app_name", "GlassCar Ultra")
         minSdk = 28
         targetSdk = 34
-        versionCode = 5
-        versionName = "4.1-review"
+        versionCode = 6
+        versionName = "4.2-ts10-test"
         val mapsKey = providers.gradleProperty("MAPS_API_KEY").orElse(providers.environmentVariable("MAPS_API_KEY")).orElse("").get()
         resValue("string", "google_maps_key", mapsKey)
         buildConfigField("boolean", "GOOGLE_MAPS_CONFIGURED", mapsKey.isNotBlank().toString())
@@ -22,9 +22,9 @@ android {
     buildTypes {
         create("review") {
             initWith(getByName("debug"))
-            applicationIdSuffix = ".review"
+            applicationIdSuffix = ".ts10test"
             matchingFallbacks += listOf("debug")
-            resValue("string", "app_name", "GlassCar 4.1 Prueba")
+            resValue("string", "app_name", "GlassCar 4.2 Prueba")
         }
         release {
             isMinifyEnabled = false

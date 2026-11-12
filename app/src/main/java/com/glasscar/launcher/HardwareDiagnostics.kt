@@ -33,9 +33,10 @@ object HardwareDiagnostics {
         appendLine("Android ${Build.VERSION.RELEASE} · API ${Build.VERSION.SDK_INT} · compilación ${Build.DISPLAY}")
         val dm = context.resources.displayMetrics
         appendLine("Pantalla: ${dm.widthPixels}×${dm.heightPixels}px · ${dm.densityDpi}dpi · escala ${config.uiScale}")
-        appendLine("Audio: ${if (config.nativeAudio) "panel nativo" else "STREAM_MUSIC Android"}")
+        appendLine("Audio: ${if (config.nativeAudio) "estéreo (TW si está disponible)" else "STREAM_MUSIC Android"}")
         val audio = context.getSystemService(AudioManager::class.java)
         appendLine("STREAM_MUSIC: ${audio?.getStreamVolume(AudioManager.STREAM_MUSIC)}/${audio?.getStreamMaxVolume(AudioManager.STREAM_MUSIC)} · fijo: ${audio?.isVolumeFixed}")
+        appendLine(TopwayAudio.report())
         appendLine("Brillo Android: ${Settings.System.getInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS, -1)}/255 · permiso escritura: ${Settings.System.canWrite(context)}")
         appendLine("Modo brillo: ${Settings.System.getInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS_MODE, -1)} (0 manual / 1 automático)")
         val now = SystemClock.elapsedRealtime()

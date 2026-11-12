@@ -894,9 +894,14 @@ private fun QuickControlBar(
     modifier: Modifier,
     nativeAudio: Boolean = false
 ) {
-    var volume by remember { mutableFloatStateOf(status.volume) }
+    val tw = TopwayAudio.controller.state
+    val nativeReady = nativeAudio && tw.usable(android.os.SystemClock.elapsedRealtime())
+    val shownVolume = if (nativeAudio) tw.volume?.fraction ?: 0f else status.volume
+    var volume by remember { mutableFloatStateOf(shownVolume) }
     var dragging by remember { mutableStateOf(false) }
-    LaunchedEffect(status.volume) { if (!dragging) volume = status.volume }
+    LaunchedEffect(shownVolume, dragging, nativeAudio, tw.pendingLevel) {
+        if (!dragging) volume = shownVolume
+    }
     var brightness by remember { mutableFloatStateOf(status.brightness) }
     var draggingBrightness by remember { mutableStateOf(false) }
     LaunchedEffect(status.brightness) { if (!draggingBrightness) brightness = status.brightness }
@@ -909,18 +914,25 @@ private fun QuickControlBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            if (nativeAudio) Box(Modifier.weight(1f).height(44.dp).bounceClick { actions.openNativeControls() }, contentAlignment = Alignment.Center) {
-                Txt("Volumen del estéreo · Abrir", 14.sp, FontWeight.Medium)
+            if (nativeAudio && (!nativeReady || tw.pendingLevel != null)) Box(
+                Modifier.weight(1f).height(44.dp).bounceClick { actions.openNativeControls() }, contentAlignment = Alignment.Center
+            ) {
+                Txt(if (tw.pendingLevel != null) "Confirmando volumen…" else "Volumen del estéreo · Abrir", 14.sp, FontWeight.Medium)
             } else GlassTube(
                 value = volume,
                 glyph = Glyph.Speaker,
                 modifier = Modifier
                     .weight(1f)
                     .height(42.dp),
-                onDragState = { dragging = it }
+                onDragState = { dragging = it },
+                onCommit = { if (nativeReady) actions.setVolume(it) },
+                label = if (nativeReady) {
+                    val max = tw.volume!!.maximum
+                    if (tw.volume.muted && !dragging) "Silencio" else "${(volume * max).roundToInt()}/$max"
+                } else null
             ) {
                 volume = it
-                actions.setVolume(it)
+                if (!nativeAudio) actions.setVolume(it)
             }
             GlassTube(
                 value = brightness,
@@ -947,34 +959,44 @@ private fun QuickControlBar(
 }
 
 @Composable
-private fun GlassTube(
+internal fun GlassTube(
     value: Float,
     glyph: Glyph,
     modifier: Modifier,
     onDragState: (Boolean) -> Unit = {},
+    onCommit: (Float) -> Unit = {},
+    label: String? = null,
     onChange: (Float) -> Unit
 ) {
     val change by rememberUpdatedState(onChange)
     val dragState by rememberUpdatedState(onDragState)
+    val commit by rememberUpdatedState(onCommit)
     val shape = RoundedCornerShape(50)
     Box(
         modifier
             .clip(shape)
             .background(Color(0x14FFFFFF))
             .pointerInput(Unit) {
-                detectTapGestures { change((it.x / size.width).coerceIn(0f, 1f)) }
+                detectTapGestures {
+                    val fraction = (it.x / size.width).coerceIn(0f, 1f)
+                    change(fraction)
+                    commit(fraction)
+                }
             }
             .pointerInput(Unit) {
+                var fraction = 0f
                 detectHorizontalDragGestures(
                     onDragStart = {
                         dragState(true)
-                        change((it.x / size.width).coerceIn(0f, 1f))
+                        fraction = (it.x / size.width).coerceIn(0f, 1f)
+                        change(fraction)
                     },
-                    onDragEnd = { dragState(false) },
+                    onDragEnd = { commit(fraction); dragState(false) },
                     onDragCancel = { dragState(false) }
                 ) { pointer, _ ->
                     pointer.consume()
-                    change((pointer.position.x / size.width).coerceIn(0f, 1f))
+                    fraction = (pointer.position.x / size.width).coerceIn(0f, 1f)
+                    change(fraction)
                 }
             }
     ) {
@@ -991,7 +1013,7 @@ private fun GlassTube(
                 .background(Brush.verticalGradient(0f to Color(0x38FFFFFF), 0.5f to Color.White.copy(alpha = 0f)))
                 .border(1.2.dp, SpecularRim, shape)
         )
-        Txt("${(value * 100).roundToInt()}%", 12.sp, modifier = Modifier.align(Alignment.CenterEnd).padding(end = 12.dp))
+        Txt(label ?: "${(value * 100).roundToInt()}%", 12.sp, modifier = Modifier.align(Alignment.CenterEnd).padding(end = 12.dp))
         GlyphIcon(
             glyph,
             Modifier

@@ -38,3 +38,7 @@ Referencias primarias:
 ## Validación
 
 Se añaden pruebas de marcha desconocida/CAN caduco, escala persistente, reporte de diagnóstico, estado CarPlay sin widget y renderizado en panel mdpi de 1920×1080. Ejecutar testDebugUnitTest, lintDebug, assembleDebug y assembleRelease mediante GitHub Actions. Se entrega una variante review separada, instalable junto a 4.0 para conservar su instalación y configuración. El estado final del flujo determina si el APK se entrega como compilado; no reemplaza la prueba en el estéreo.
+
+## Seguimiento 4.2
+
+La prueba del volante confirmó que STREAM_MUSIC no sigue el volumen nativo. Se identificó el protocolo de volumen en System UI del equipo y se implementó un adaptador de prueba con confirmación de lectura. No está validado todavía en hardware. Ver [TS10-AUDIO.md](TS10-AUDIO.md).

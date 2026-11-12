@@ -63,10 +63,10 @@ fun LauncherSheet(sheet: String, apps: List<AppEntry>, config: LauncherConfig, p
                                     preferences.setUiScale(if (config.uiScale > 1f) 1f else 1.15f)
                                 }
                                 SettingRow("Diagnóstico del estéreo", "Modelo, audio, cámara y CAN") { onChoose("diagnostics") }
-                                SettingRow("Control de volumen", if (config.nativeAudio) "Panel real del estéreo" else "Volumen Android") {
+                                SettingRow("Control de volumen", if (config.nativeAudio) "Estéreo · integración TS10" else "Volumen Android") {
                                     preferences.setNativeAudio(!config.nativeAudio)
                                 }
-                                BodyText("Si el volumen Android es independiente del estéreo, elige su panel real. Así no se muestra una segunda barra como si fuera el volumen del vehículo.")
+                                BodyText("En TS10 compatible, la barra usa el volumen nativo al recibir una lectura válida. Si no hay conexión o el cambio no se confirma, puedes abrir el panel del estéreo.")
                                 SettingRow("Música e indicaciones de Maps", "Permisos de notificaciones") { actions.openNotificationAccess() }
                                 SettingRow("Recientes de todo Android", "Permiso opcional de uso de aplicaciones") { actions.openUsageAccess() }
                                 SettingRow("Conexiones y voltaje", "Ver estado") { onChoose("status") }
@@ -79,7 +79,7 @@ fun LauncherSheet(sheet: String, apps: List<AppEntry>, config: LauncherConfig, p
                                         kotlinx.coroutines.delay(1000)
                                     }
                                 }
-                                BodyText("Con el auto estacionado, usa los botones de volumen del volante y observa si cambia STREAM_MUSIC. El reporte permite identificar el equipo y preparar su integración.")
+                                BodyText("Con el auto estacionado y volumen bajo, cambia un paso desde el volante: observa TW nivel. Después prueba un cambio pequeño desde la barra de GlassCar. TW confirmado debe coincidir con el nivel del estéreo. Copia el diagnóstico si la conexión falla.")
                                 SmallAction("Copiar diagnóstico") {
                                     context.getSystemService(android.content.ClipboardManager::class.java)
                                         .setPrimaryClip(android.content.ClipData.newPlainText("GlassCar diagnóstico", report))

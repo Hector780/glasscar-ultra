@@ -1,8 +1,14 @@
-# GlassCar Ultra 4.1 · revisión en equipo
+# GlassCar Ultra 4.2 · prueba TS10
+
+Adaptador experimental identificado en las APK originales del equipo: lectura del volumen/escala/silencio mediante TWUtil y cambio absoluto desde el deslizador con confirmación del estéreo. Solo se activa en el perfil UIS7862/API29 inspeccionado. Si falla el acceso o no llega confirmación, ofrece el panel nativo. **Funcionamiento físico pendiente de prueba.**
+
+La variante `review` ahora usa `com.glasscar.launcher.ts10test` / **GlassCar 4.2 Prueba**, instalable junto a las versiones anteriores, con ajustes propios. Detalles, evidencia y prueba: [docs/TS10-AUDIO.md](docs/TS10-AUDIO.md). Maps/Tlink, DVR y CAN siguen pendientes.
+
+## Revisión de interfaz 4.1
 
 Launcher Android horizontal para el estéreo. La versión 4.0 incorpora la revisión de `IMG_0419.mp4`: tablero con mapa, música ampliada, accesos configurables y páginas de CarPlay, cámara e instrumentos.
 
-La revisión 4.1 responde al nuevo video `IMG_0421.mp4`: mejora carátula, letras, escala, accesos y clima; elimina la marcha estimada y añade diagnóstico del estéreo. **La integración de las apps Google Maps/Tlink5/DVR y del volumen MCU sigue pendiente de identificar el firmware.** Ver [revisión y pendientes](docs/VIDEO-REVIEW-4.1.md).
+La revisión 4.1 responde al nuevo video `IMG_0421.mp4`: mejora carátula, letras, escala, accesos y clima; elimina la marcha estimada y añade diagnóstico del estéreo. **La integración de las apps Google Maps/Tlink5/DVR sigue pendiente; el adaptador de volumen TS10 de 4.2 requiere prueba en el equipo.** Ver [revisión y pendientes](docs/VIDEO-REVIEW-4.1.md).
 
 ## Uso
 
@@ -21,7 +27,7 @@ La revisión 4.1 responde al nuevo video `IMG_0421.mp4`: mejora carátula, letra
 | Google Maps integrado | Se activa al compilar con una clave de Maps SDK for Android, por propiedad `MAPS_API_KEY` o variable de entorno. Restringir la clave al paquete y certificado de firma. Requiere servicios Google compatibles. La app completa de navegación sigue abriéndose con «Abrir». |
 | Cámara frontal | Vista Camera2 si el estéreo expone la cámara a Android. Se puede elegir el ID de cámara, usar un widget del proveedor o abrir la app DVR asignada. Una cámara propietaria no expuesta necesita integración del fabricante. |
 | Tlink5/CarPlay | Página dedicada que abre la app asignada al llegar a ella. Si el proveedor ofrece widget, puede mostrarse dentro del panel. No incrusta arbitrariamente la actividad de Tlink5 ni implementa el protocolo CarPlay. |
-| Volumen | En unidades detectadas con MCU se abre su panel nativo. El modo Android usa `STREAM_MUSIC`. No se ha implementado una barra MCU sincronizada: necesita la API del fabricante. |
+| Volumen | En el perfil TS10 inspeccionado, adaptador TWUtil de prueba con nivel/máximo/silencio y confirmación del cambio. Si no hay lectura válida o confirmación, ofrece el panel nativo. El modo Android usa `STREAM_MUSIC` por separado. |
 | Brillo | Ajuste real `Settings.System`, con permiso para modificar ajustes y mínimo de 12 %. Se elimina la atenuación independiente de la ventana. Si el firmware no respeta este ajuste, usar su panel nativo. |
 | Voltaje | Sólo aparece un valor si llega una lectura CAN reconocida y reciente; de otro modo indica que no está disponible. Se eliminó el «12V» fijo. |
 

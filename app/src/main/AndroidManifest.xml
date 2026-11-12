@@ -24,6 +24,8 @@
 
     <!-- Permite ver todas las apps instaladas -->
     <queries>
+        <package android:name="com.tw.service" />
+        <package android:name="com.dofun.carsetting" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
