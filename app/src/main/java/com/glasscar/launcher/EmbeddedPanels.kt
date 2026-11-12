@@ -56,7 +56,7 @@ fun HostedWidget(id: Int, actions: LauncherActions, modifier: Modifier): Boolean
 
 @Composable
 fun NavigationPanel(drive: DriveState, config: LauncherConfig, apps: List<AppEntry>, actions: LauncherActions,
-    onConfigure: (String) -> Unit, modifier: Modifier) {
+    onConfigure: (String) -> Unit, modifier: Modifier, speed: ResolvedSpeed = ResolvedSpeed(0f, SpeedSource.NONE)) {
     val navigation by MediaListenerService.navigation.collectAsState()
     var follow by remember { mutableStateOf(true) }
     SpatialGlassSurface(modifier, cornerRadius = 26.dp) {
@@ -84,7 +84,7 @@ fun NavigationPanel(drive: DriveState, config: LauncherConfig, apps: List<AppEnt
                 }
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Txt(if (drive.hasFix) "${drive.speedKmh.toInt()} km/h · GPS" else "GPS sin señal", 17.sp,
+                Txt(if (speed.source != SpeedSource.NONE) "${speed.kmh.toInt()} km/h · ${speed.source.name}" else "Velocidad sin señal", 17.sp,
                     modifier = Modifier.weight(1f))
                 SmallAction("Vista") { onConfigure("dashboard") }
             }

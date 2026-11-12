@@ -65,7 +65,7 @@ class DashboardUiTest {
         compose.mainClock.advanceTimeBy(1000)
         screenshot("dashboard-day")
         compose.onNodeWithText("Open-Meteo · sin lectura").performClick()
-        compose.onNodeWithText("Clima exterior").assertIsDisplayed()
+        compose.onNode(hasText("Clima exterior") and hasAnyAncestor(isDialog())).assertIsDisplayed()
         compose.onNodeWithText("Actualizar ahora").assertIsDisplayed()
         screenshot("weather-details")
     }

@@ -463,7 +463,7 @@ private fun Dashboard(drive: DriveState, speed: ResolvedSpeed, gear: Gear?, gear
     Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Column(Modifier.weight(0.52f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (config.dashboardCamera) CameraPanel(config, apps, actions, configure, permissionVersion, Modifier.weight(1f).fillMaxWidth())
-            else NavigationPanel(drive, config, apps, actions, configure, Modifier.weight(1f).fillMaxWidth())
+            else NavigationPanel(drive, config, apps, actions, configure, Modifier.weight(1f).fillMaxWidth(), speed)
             QuickAppsWidget(apps, status, actions, Modifier.fillMaxWidth().height(100.dp), config, configure)
         }
         Column(Modifier.weight(0.48f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
