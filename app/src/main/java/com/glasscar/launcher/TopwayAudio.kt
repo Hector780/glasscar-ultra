@@ -189,16 +189,24 @@ internal class ReflectiveTopwayAudioTransport : TopwayAudioTransport {
     private val closeMethod = type.getMethod("close")
     private val instance = type.getConstructor().newInstance()
     private val tag = "GlassCarAudio"
-    override fun open() = (openMethod.invoke(instance, shortArrayOf(TopwayVolumeProtocol.CHANNEL.toShort())) as Number).toInt()
-    override fun addHandler(handler: Handler) { addMethod.invoke(instance, tag, handler) }
-    override fun start() { startMethod.invoke(instance) }
+    private var opened = false
+    private var listening = false
+    private var started = false
+    override fun open(): Int {
+        val result = (openMethod.invoke(instance, shortArrayOf(TopwayVolumeProtocol.CHANNEL.toShort())) as Number).toInt()
+        opened = result == 0
+        return result
+    }
+    override fun addHandler(handler: Handler) { addMethod.invoke(instance, tag, handler); listening = true }
+    override fun start() { startMethod.invoke(instance); started = true }
     override fun query() = (queryMethod.invoke(instance, TopwayVolumeProtocol.CHANNEL, TopwayVolumeProtocol.QUERY) as Number).toInt()
     override fun setLevel(level: Int) = (levelMethod.invoke(instance, TopwayVolumeProtocol.CHANNEL,
         TopwayVolumeProtocol.SET_LEVEL, level, null) as Number).toInt()
     override fun close() {
-        runCatching { removeMethod.invoke(instance, tag) }
-        runCatching { stopMethod.invoke(instance) }
-        runCatching { closeMethod.invoke(instance) }
+        if (listening) runCatching { removeMethod.invoke(instance, tag) }
+        if (started) runCatching { stopMethod.invoke(instance) }
+        if (opened) runCatching { closeMethod.invoke(instance) }
+        listening = false; started = false; opened = false
     }
 }
 

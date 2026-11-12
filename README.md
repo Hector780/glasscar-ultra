@@ -48,6 +48,6 @@ Se conserva la firma de desarrollo que utilizaba el proyecto, también en la var
 Ver [seguimiento de los 30 puntos del video](docs/VIDEO-REVIEW.md). Las integraciones de hardware requieren una prueba en el estéreo real, con el iPhone conectado para CarPlay.
 
 
-## APK de revisión 4.1
+## APK de prueba 4.2
 
-La variante `review` genera `app/build/outputs/apk/review/app-review.apk` con paquete `com.glasscar.launcher.review` y nombre **GlassCar 4.1 Prueba**. Puede instalarse junto a 4.0 sin sustituirla ni depender de su certificado. Tiene permisos y ajustes propios. Para obtener los datos del equipo, abre Configuración → Diagnóstico del estéreo → Copiar diagnóstico.
+La variante `review` genera `app/build/outputs/apk/review/app-review.apk` con paquete `com.glasscar.launcher.ts10test` y nombre **GlassCar 4.2 Prueba**. Puede instalarse junto a 4.0 y 4.1 sin sustituirla ni depender de su certificado. Tiene permisos y ajustes propios. Para obtener los datos del equipo, abre Configuración → Diagnóstico del estéreo → Copiar diagnóstico.

@@ -928,7 +928,7 @@ private fun QuickControlBar(
                 onCommit = { if (nativeReady) actions.setVolume(it) },
                 label = if (nativeReady) {
                     val max = tw.volume!!.maximum
-                    if (tw.volume.muted && !dragging) "Silencio" else "${(volume * max).roundToInt()}/$max"
+                    if (tw.volume?.muted == true && !dragging) "Silencio" else "${(volume * max).roundToInt()}/$max"
                 } else null
             ) {
                 volume = it
