@@ -28,7 +28,7 @@ jobs:
           gradle-version: '8.7'
 
       - name: Test, lint and build APK
-        run: gradle --no-daemon --max-workers=2 testDebugUnitTest lintDebug assembleDebug assembleRelease assembleReview assembleCameradiag
+        run: gradle --no-daemon --max-workers=2 testDebugUnitTest lintDebug assembleDebug assembleRelease assembleReview assembleCameradiag assembleEmbedding
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
@@ -39,6 +39,7 @@ jobs:
             app/build/outputs/apk/release/app-release.apk
             app/build/outputs/apk/review/app-review.apk
             app/build/outputs/apk/cameradiag/app-cameradiag.apk
+            app/build/outputs/apk/embedding/app-embedding.apk
           if-no-files-found: error
 
       - name: Upload validation reports

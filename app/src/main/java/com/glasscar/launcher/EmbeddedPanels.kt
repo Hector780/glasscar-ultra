@@ -57,6 +57,10 @@ fun HostedWidget(id: Int, actions: LauncherActions, modifier: Modifier): Boolean
 @Composable
 fun NavigationPanel(drive: DriveState, config: LauncherConfig, apps: List<AppEntry>, actions: LauncherActions,
     onConfigure: (String) -> Unit, modifier: Modifier, speed: ResolvedSpeed = ResolvedSpeed(0f, SpeedSource.NONE)) {
+    if (BuildConfig.REAL_APP_EMBEDDING) {
+        RealAppPanel("com.google.android.apps.maps", "Google Maps", modifier)
+        return
+    }
     val navigation by MediaListenerService.navigation.collectAsState()
     var follow by remember { mutableStateOf(true) }
     SpatialGlassSurface(modifier, cornerRadius = 26.dp) {
@@ -226,6 +230,10 @@ fun CameraPanel(config: LauncherConfig, apps: List<AppEntry>, actions: LauncherA
 @Composable
 fun CarPlayPanel(config: LauncherConfig, apps: List<AppEntry>, actions: LauncherActions, onConfigure: (String) -> Unit,
     modifier: Modifier) {
+    if (BuildConfig.REAL_APP_EMBEDDING) {
+        RealAppPanel("com.zjinnova.zlink", "Tlink5", modifier)
+        return
+    }
     val app = resolveApp(apps, config, "carplay", QuickShortcuts[6])
     val hasWidgets = matchingWidgets(LocalContext.current, app).isNotEmpty()
     SpatialGlassSurface(modifier, cornerRadius = 30.dp) {
@@ -260,4 +268,3 @@ fun SmallAction(label: String, onClick: () -> Unit) {
         Txt(label, 15.sp)
     }
 }
-

@@ -14,12 +14,21 @@ android {
         targetSdk = 34
         versionCode = 6
         versionName = "4.2-ts10-test"
+        buildConfigField("boolean", "REAL_APP_EMBEDDING", "false")
         val mapsKey = providers.gradleProperty("MAPS_API_KEY").orElse(providers.environmentVariable("MAPS_API_KEY")).orElse("").get()
         resValue("string", "google_maps_key", mapsKey)
         buildConfigField("boolean", "GOOGLE_MAPS_CONFIGURED", mapsKey.isNotBlank().toString())
     }
 
     buildTypes {
+        create("embedding") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".embedtest"
+            versionNameSuffix = "-real-app-prototype"
+            matchingFallbacks += listOf("debug")
+            buildConfigField("boolean", "REAL_APP_EMBEDDING", "true")
+            resValue("string", "app_name", "GlassCar Apps Reales Prueba")
+        }
         create("cameradiag") {
             initWith(getByName("debug"))
             applicationIdSuffix = ".cameradiag"
@@ -46,6 +55,7 @@ android {
         jvmTarget = "17"
     }
     buildFeatures {
+        aidl = true
         compose = true
         buildConfig = true
     }
@@ -61,6 +71,8 @@ android {
 }
 
 dependencies {
+    implementation("dev.rikka.shizuku:api:13.1.5")
+    implementation("dev.rikka.shizuku:provider:13.1.5")
     val composeBom = platform("androidx.compose:compose-bom:2024.06.00")
     implementation(composeBom)
     implementation("androidx.core:core-ktx:1.13.1")

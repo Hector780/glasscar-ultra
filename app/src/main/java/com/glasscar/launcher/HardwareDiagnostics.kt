@@ -54,6 +54,7 @@ object HardwareDiagnostics {
             "ID $id · facing=${c.get(CameraCharacteristics.LENS_FACING)} · nivel=${c.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL)}"
         }.getOrDefault("ID $id · no se pudieron consultar características"))
         appendLine(CameraHardwareDiagnostics.report(context))
+        if (BuildConfig.REAL_APP_EMBEDDING) appendLine(EmbeddingReport.report())
         for ((slot, shortcut) in listOf("maps" to DockShortcuts[0], "carplay" to QuickShortcuts[6], "camera" to QuickShortcuts[3])) {
             val app = resolveApp(apps, config, slot, shortcut)
             appendLine("$slot: ${app?.componentKey ?: "no asignada"}")
