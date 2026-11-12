@@ -12,6 +12,7 @@
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
     <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
     <uses-permission android:name="android.permission.BIND_APPWIDGET" tools:ignore="ProtectedPermissions" />
     <!-- Estado de Bluetooth en Android 11 o anterior y Android 12+ -->
@@ -24,6 +25,10 @@
 
     <!-- Permite ver todas las apps instaladas -->
     <queries>
+        <package android:name="com.williexing.android.apps.xcdvr1" />
+        <package android:name="com.tw.reverse" />
+        <package android:name="com.tw.rightview" />
+        <package android:name="com.sprd.cameraipcontrol" />
         <package android:name="com.tw.service" />
         <package android:name="com.dofun.carsetting" />
         <intent>
@@ -70,5 +75,3 @@
         </service>
     </application>
 </manifest>
-
-

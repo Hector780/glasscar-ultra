@@ -20,6 +20,13 @@ android {
     }
 
     buildTypes {
+        create("cameradiag") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".cameradiag"
+            versionNameSuffix = "-camera-diagnostic"
+            matchingFallbacks += listOf("debug")
+            resValue("string", "app_name", "GlassCar Cámaras Diagnóstico")
+        }
         create("review") {
             initWith(getByName("debug"))
             applicationIdSuffix = ".ts10test"
@@ -73,5 +80,3 @@ dependencies {
     testImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
-
-

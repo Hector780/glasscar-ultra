@@ -45,12 +45,15 @@ object HardwareDiagnostics {
         appendLine("CAN luces: ${can.lightsOn ?: "sin dato"}")
         appendLine("Cámaras Android:")
         val manager = context.getSystemService(CameraManager::class.java)
-        val cameras = availableCameras(context)
-        if (cameras.isEmpty()) appendLine("Ninguna expuesta por Camera2")
+        val cameraQuery = runCatching { manager.cameraIdList.toList() }
+        val cameras = cameraQuery.getOrDefault(emptyList())
+        if (cameraQuery.isFailure) appendLine("No se pudo enumerar Camera2: ${cameraQuery.exceptionOrNull()?.javaClass?.simpleName}")
+        else if (cameras.isEmpty()) appendLine("Ninguna expuesta por Camera2")
         for (id in cameras) appendLine(runCatching {
             val c = manager.getCameraCharacteristics(id)
             "ID $id · facing=${c.get(CameraCharacteristics.LENS_FACING)} · nivel=${c.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL)}"
         }.getOrDefault("ID $id · no se pudieron consultar características"))
+        appendLine(CameraHardwareDiagnostics.report(context))
         for ((slot, shortcut) in listOf("maps" to DockShortcuts[0], "carplay" to QuickShortcuts[6], "camera" to QuickShortcuts[3])) {
             val app = resolveApp(apps, config, slot, shortcut)
             appendLine("$slot: ${app?.componentKey ?: "no asignada"}")
