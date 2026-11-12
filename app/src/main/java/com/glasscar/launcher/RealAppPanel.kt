@@ -1,5 +1,6 @@
 package com.glasscar.launcher
 
+import android.annotation.SuppressLint
 import android.content.ComponentName
 import android.content.Context
 import android.content.ServiceConnection
@@ -137,9 +138,7 @@ private class RealAppController(private val context: Context, private val target
             surface = Surface(image)
             val manager = context.getSystemService(DisplayManager::class.java)
             // Android 10's DESTROY_CONTENT_ON_REMOVAL (1 << 8) avoids migrating guest tasks to display 0.
-            display = manager.createVirtualDisplay(EmbeddingPolicy.displayName(android.os.Process.myUid(), target),
-                width, height, context.resources.displayMetrics.densityDpi, surface,
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC or DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY or (1 shl 8))
+            display = createPanelDisplay(manager, width, height)
             val current = display ?: throw IllegalStateException("Sin pantalla virtual")
             val token = ++generation
             val userArgs = Shizuku.UserServiceArgs(ComponentName(context.packageName, EmbeddedAppService::class.java.name))
@@ -176,6 +175,14 @@ private class RealAppController(private val context: Context, private val target
             }.also { main.postDelayed(it, 15000L) }
         } catch (e: Exception) { stop("No se pudo iniciar: ${e.javaClass.simpleName}") }
     }
+
+    // AOSP android-10.0.0_r1 DisplayManager defines this hidden flag as 1 << 8.
+    // start() permits API 29 only. Keep it: removal must destroy guest content, not move it to display 0.
+    @SuppressLint("WrongConstant")
+    private fun createPanelDisplay(manager: DisplayManager, width: Int, height: Int): VirtualDisplay? =
+        manager.createVirtualDisplay(EmbeddingPolicy.displayName(android.os.Process.myUid(), target),
+            width, height, context.resources.displayMetrics.densityDpi, surface,
+            DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC or DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY or (1 shl 8))
 
     fun back() {
         val d = display ?: return
