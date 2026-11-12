@@ -112,6 +112,9 @@ private class RealAppController(private val context: Context, private val target
         if (disposed) return
         if (display != null || closing) { tell("Cierra la sesión actual antes de reintentar"); return }
         if (Build.VERSION.SDK_INT != 29) { tell("Esta prueba está preparada para API 29"); return }
+        if (!context.packageManager.hasSystemFeature(PackageManager.FEATURE_ACTIVITIES_ON_SECONDARY_DISPLAYS)) {
+            tell("El firmware no declara soporte para apps en pantallas secundarias"); return
+        }
         if (!Shizuku.pingBinder()) { tell("Activa Shizuku mediante ADB o root y vuelve a pulsar Iniciar aquí"); return }
         try {
             if (Shizuku.getVersion() < 12) { tell("Actualiza Shizuku antes de continuar"); return }
@@ -231,3 +234,4 @@ private class RealAppController(private val context: Context, private val target
     override fun onSurfaceTextureUpdated(surface: SurfaceTexture) = Unit
     companion object { private const val REQUEST_CODE = 8420 }
 }
+

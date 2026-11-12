@@ -37,6 +37,7 @@ Fuentes primarias:
 - Variante `embedding`: paquete `com.glasscar.launcher.embedtest`, nombre **GlassCar Apps Reales Prueba**, instalada aparte de las pruebas de audio/cámara.
 - `RealAppPanel`: superficie de tamaño real en píxeles; inicio explícito, Atrás, Cerrar y comprobación de estado. Se usa en el panel Maps del dashboard y en la página CarPlay sólo en esta variante.
 - `RealAppController`: crea VirtualDisplay PUBLIC | OWN_CONTENT_ONLY | DESTROY_CONTENT_ON_REMOVAL; al salir detiene sesión/libera display/surface y desvincula UserService. Un cambio de tamaño exige reinicio explícito. Inicio/cierre se serializan para no destruir el display mientras el comando de inicio sigue pendiente.
+- Antes de iniciar exige FEATURE_ACTIVITIES_ON_SECONDARY_DISPLAYS: AOSP canPlaceEntityOnDisplay rechaza displays secundarios cuando el sistema no soporta esa capacidad. Si falta, no se envía el comando de lanzamiento ni se ofrece apertura externa como sustituto.
 - `EmbeddedAppService`: UserService no registrado como Service exportado. Se obtiene exclusivamente mediante Shizuku. Sólo acepta los dos componentes exactos; comprueba propietario real y nombre del display, UID del llamador, vida del Binder y displayId > 0. No ofrece ejecución arbitraria de comandos ni entrada sobre la pantalla principal.
 - Inicio con argumentos separados de `/system/bin/am start --user current --display ID -n COMPONENT -f 0x10000000`, sin shell interpolado, force-stop, edición de settings ni privilegios persistentes. Después consulta stacks y exige que la app esté realmente en ese display antes de habilitar interacción. Si singleTask/firmware la desvía, se informa el fallo; no se considera integración completada.
 - Toques por MotionEvent parcelado, conservando punteros y acciones; inyección con displayId del panel. Atrás también apunta a ese display. No se capturan ni almacenan imágenes ni texto de las apps. Los mensajes técnicos se incluyen en Diagnóstico del estéreo.
@@ -67,3 +68,4 @@ El código está deliberadamente limitado a API 29. No se ha probado teclado/IME
 ## Continuidad
 
 Base: `1f16d2fbd84057dfc7abb8b85be2554387f27a3d`, rama cámara. Trabajo de embedding en `work/real-app-embedding`; no cambiar ramas ajenas ni main mientras otra IA prueba audio/cámara. Consultar Actions de esta rama para el último estado compilado y outputs/GLASSCAR-RETOMAR.txt del workspace original para rutas, APK y validación.
+
