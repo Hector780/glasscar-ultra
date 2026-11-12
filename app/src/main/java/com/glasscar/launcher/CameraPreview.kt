@@ -109,7 +109,7 @@ private class CameraSession(private val context: Context, private val view: Text
         }.onFailure { if (token == generation) fail("No se puede acceder a esta cámara") }
     }
     private fun fail(message: String) { Handler(context.mainLooper).post { onError(message) }; pause() }
-    override fun onSurfaceTextureAvailable(t: SurfaceTexture, width: Int, height: Int) { if (running) open() }
+    override fun onSurfaceTextureAvailable(t: SurfaceTexture, width: Int, height: Int) { if (running) { timeout?.let(main::removeCallbacks); running = false; resume() } }
     override fun onSurfaceTextureSizeChanged(t: SurfaceTexture, width: Int, height: Int) = Unit
     override fun onSurfaceTextureUpdated(t: SurfaceTexture) {
         if (running && !hasFrame) {

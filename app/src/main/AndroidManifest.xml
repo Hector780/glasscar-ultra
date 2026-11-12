@@ -33,7 +33,7 @@
     <application
         android:allowBackup="false"
         android:icon="@drawable/ic_launcher"
-        android:label="GlassCar Ultra"
+        android:label="@string/app_name"
         android:roundIcon="@drawable/ic_launcher"
         android:supportsRtl="true"
         android:theme="@style/Theme.GlassCar">
@@ -68,4 +68,5 @@
         </service>
     </application>
 </manifest>
+
 

@@ -32,7 +32,7 @@ El APK no sustituye los instrumentos del automóvil. La selección manual de mar
 Requisitos: JDK 17 completo, Gradle 8.7 y Android SDK 34 (Build Tools 34.0.0). Define `ANDROID_HOME` o `sdk.dir` en `local.properties`.
 
 ```sh
-gradle --no-daemon testDebugUnitTest lintDebug assembleDebug assembleRelease
+gradle --no-daemon testDebugUnitTest lintDebug assembleDebug assembleRelease assembleReview
 ```
 
 APK: `app/build/outputs/apk/debug/app-debug.apk` y `app/build/outputs/apk/release/app-release.apk`. GitHub Actions ejecuta las mismas comprobaciones y conserva APK y reportes. Las pruebas Robolectric cubren reglas de asignación, preferencias, datos caducos, reproducción y gestos; generan capturas de interfaz sin depender de servicios externos.
@@ -41,3 +41,7 @@ Se conserva la firma de desarrollo que utilizaba el proyecto, también en la var
 
 Ver [seguimiento de los 30 puntos del video](docs/VIDEO-REVIEW.md). Las integraciones de hardware requieren una prueba en el estéreo real, con el iPhone conectado para CarPlay.
 
+
+## APK de revisión 4.1
+
+La variante `review` genera `app/build/outputs/apk/review/app-review.apk` con paquete `com.glasscar.launcher.review` y nombre **GlassCar 4.1 Prueba**. Puede instalarse junto a 4.0 sin sustituirla ni depender de su certificado. Tiene permisos y ajustes propios. Para obtener los datos del equipo, abre Configuración → Diagnóstico del estéreo → Copiar diagnóstico.

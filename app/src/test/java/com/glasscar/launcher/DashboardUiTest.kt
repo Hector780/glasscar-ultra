@@ -26,6 +26,7 @@ class DashboardUiTest {
     @get:Rule val compose = createAndroidComposeRule<androidx.activity.ComponentActivity>()
     private lateinit var prefs: LauncherPreferences
     private val drawer = mutableStateOf(false)
+    private val media = MutableStateFlow(MediaInfo(hasAccess = true))
     private val actions = object : LauncherActions {
         override fun open(app: AppEntry) {}
         override fun open(shortcut: Shortcut, apps: List<AppEntry>) {}
@@ -43,7 +44,7 @@ class DashboardUiTest {
         prefs = LauncherPreferences(context)
         val app = AppEntry("Aplicación de prueba", "test.app", "test.app.Main", Bitmap.createBitmap(32,32,Bitmap.Config.ARGB_8888).asImageBitmap())
         compose.setContent {
-            LauncherRoot(listOf(app), MutableStateFlow(DriveState()), MutableStateFlow(MediaInfo(hasAccess = true)),
+            LauncherRoot(listOf(app), MutableStateFlow(DriveState()), media,
                 MutableStateFlow(CanState()), WeatherSource(), drawer.value, { drawer.value = !drawer.value }, { drawer.value = false }, actions, prefs)
         }
     }
@@ -86,6 +87,21 @@ class DashboardUiTest {
         compose.onNodeWithContentDescription("Cambiar página de accesos").assertIsDisplayed()
         compose.onNodeWithText("Clima exterior").assertIsDisplayed()
         screenshot("dashboard-1920-mdpi")
+    }
+    @Test fun albumArtAndLargeControlsRenderInDayTheme() {
+        val art = Bitmap.createBitmap(300, 300, Bitmap.Config.ARGB_8888)
+        android.graphics.Canvas(art).apply {
+            drawColor(android.graphics.Color.rgb(18, 56, 82))
+            drawCircle(150f, 150f, 95f, android.graphics.Paint().apply { color = android.graphics.Color.rgb(60, 190, 180) })
+        }
+        compose.runOnIdle {
+            prefs.setNight(false)
+            media.value = MediaInfo(title = "Prueba de carátula", artist = "GlassCar", art = art.asImageBitmap(),
+                hasAccess = true, hasSession = true, durationMs = 180000, positionMs = 45000)
+        }
+        compose.mainClock.advanceTimeBy(1000)
+        compose.onNodeWithText("Prueba de carátula").assertIsDisplayed()
+        screenshot("music-art-day")
     }
     private fun screenshot(name: String) {
         compose.waitForIdle()

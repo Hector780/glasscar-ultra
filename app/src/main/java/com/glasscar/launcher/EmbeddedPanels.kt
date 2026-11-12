@@ -3,6 +3,8 @@ package com.glasscar.launcher
 import android.Manifest
 import android.appwidget.AppWidgetManager
 import android.content.pm.PackageManager
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -235,7 +237,7 @@ fun CarPlayPanel(config: LauncherConfig, apps: List<AppEntry>, actions: Launcher
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 val id = config.widgets["carplay"]
                 val shown = id != null && HostedWidget(id, actions, Modifier.fillMaxSize())
-                if (!shown) Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                if (!shown) Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (app != null) Image(app.icon, app.label, Modifier.size(100.dp))
                     Txt(app?.label ?: "Selecciona Tlink5 o tu app de CarPlay", 24.sp)
                     Txt("Conecta el iPhone desde la aplicación del estéreo", 16.sp, color = Ultra.Secondary)

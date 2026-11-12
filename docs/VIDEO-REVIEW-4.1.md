@@ -37,4 +37,4 @@ Referencias primarias:
 
 ## Validación
 
-Se añaden pruebas de marcha desconocida/CAN caduco, escala persistente, reporte de diagnóstico, estado CarPlay sin widget y renderizado en panel mdpi de 1920×1080. Ejecutar testDebugUnitTest, lintDebug, assembleDebug y assembleRelease mediante GitHub Actions. El estado final del flujo determina si el APK se entrega como compilado; no reemplaza la prueba en el estéreo.
+Se añaden pruebas de marcha desconocida/CAN caduco, escala persistente, reporte de diagnóstico, estado CarPlay sin widget y renderizado en panel mdpi de 1920×1080. Ejecutar testDebugUnitTest, lintDebug, assembleDebug y assembleRelease mediante GitHub Actions. Se entrega una variante review separada, instalable junto a 4.0 para conservar su instalación y configuración. El estado final del flujo determina si el APK se entrega como compilado; no reemplaza la prueba en el estéreo.

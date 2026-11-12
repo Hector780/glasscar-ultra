@@ -9,6 +9,7 @@ android {
 
     defaultConfig {
         applicationId = "com.glasscar.launcher"
+        resValue("string", "app_name", "GlassCar Ultra")
         minSdk = 28
         targetSdk = 34
         versionCode = 5
@@ -19,6 +20,12 @@ android {
     }
 
     buildTypes {
+        create("review") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".review"
+            matchingFallbacks += listOf("debug")
+            resValue("string", "app_name", "GlassCar 4.1 Prueba")
+        }
         release {
             isMinifyEnabled = false
             signingConfig = signingConfigs.getByName("debug")
