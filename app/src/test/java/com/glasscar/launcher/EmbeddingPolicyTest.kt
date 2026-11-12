@@ -11,6 +11,11 @@ import org.robolectric.annotation.Config
 @Config(sdk = [29])
 class EmbeddingPolicyTest {
     private val maps = "com.google.android.apps.maps"
+    @Test fun serviceRejectsPrimaryDisplayWithoutLaunchingAnything() {
+        val service = EmbeddedAppService()
+        assertTrue(service.startApp(0, maps, android.os.Binder()).startsWith("ERROR:"))
+        assertEquals("Sin sesión", service.status(0))
+    }
     @Test fun cannotTargetPrimaryDisplayOrAnotherAppsDisplay() {
         val name = EmbeddingPolicy.displayName(10001, maps)
         assertFalse(EmbeddingPolicy.allowsDisplay(0, 10001, 10001, name, maps))
@@ -41,3 +46,4 @@ class EmbeddingPolicyTest {
         }
     }
 }
+
