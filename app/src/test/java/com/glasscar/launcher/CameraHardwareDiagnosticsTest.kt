@@ -27,6 +27,12 @@ class CameraHardwareDiagnosticsTest {
             assertFalse(describe(vid, pid, CameraHardwareDiagnostics.InterfaceInfo(8, 6, 80)).contains("ID reconocido"))
         }
     }
+    @Test fun additionalManifestIdDoesNotImplyTheSameTransport() {
+        val report = describe(0x1908, 0x2311)
+        assertTrue(report.contains("ID adicional del filtro USB"))
+        assertFalse(report.contains("almacenamiento USB"))
+        assertFalse(report.contains("interfaz USB de video"))
+    }
     @Test fun compositeDeviceRetainsVideoAndStorageEvidence() {
         val report = describe(1, 2, CameraHardwareDiagnostics.InterfaceInfo(8, 6, 80), CameraHardwareDiagnostics.InterfaceInfo(14, 2, 0))
         assertTrue(report.contains("interfaz USB de video"))

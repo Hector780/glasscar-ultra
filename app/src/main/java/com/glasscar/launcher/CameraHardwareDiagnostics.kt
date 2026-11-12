@@ -18,6 +18,9 @@ object CameraHardwareDiagnostics {
         if (vendor == 0x1b3f && product == 0x8301) {
             routes += "ID reconocido por el APK HD Car DVR; imagen no comprobada"
         }
+        if (vendor == 0x1908 && product == 0x2311) {
+            routes += "ID adicional del filtro USB de HD Car DVR; transporte e imagen no comprobados"
+        }
         if (interfaces.any { it.klass == UsbConstants.USB_CLASS_VIDEO }) {
             routes += "interfaz USB de video; compatibilidad de vista previa no comprobada"
         }
