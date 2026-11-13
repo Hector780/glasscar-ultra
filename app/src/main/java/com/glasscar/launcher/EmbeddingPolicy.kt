@@ -4,7 +4,9 @@ package com.glasscar.launcher
 object EmbeddingPolicy {
     val components = mapOf(
         "com.google.android.apps.maps" to "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
-        "com.zjinnova.zlink" to "com.zjinnova.zlink/com.zjinnova.android.zlink.features.main.MainActivity"
+        "com.zjinnova.zlink" to "com.zjinnova.zlink/com.zjinnova.android.zlink.features.main.MainActivity",
+        // Public launcher from HD Car DVR 2.13.3-gsj (target 29); its internal MainActivity alias is not exported.
+        "com.williexing.android.apps.xcdvr1" to "com.williexing.android.apps.xcdvr1/com.williexing.android.apps.xcdvr2.Splash"
     )
     fun displayName(uid: Int, target: String) = "GlassCarEmbed:$uid:$target"
     fun allowsDisplay(id: Int, ownerUid: Int, callerUid: Int, name: String, target: String): Boolean =

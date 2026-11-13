@@ -16,11 +16,18 @@ import android.os.Looper
 import android.view.MotionEvent
 import android.view.Surface
 import android.view.TextureView
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -37,34 +44,60 @@ object EmbeddingReport {
 }
 
 @Composable
-fun RealAppPanel(target: String, title: String, modifier: Modifier) {
+fun RealAppPanel(target: String, title: String, modifier: Modifier,
+    expanded: Boolean = false, onExpand: (() -> Unit)? = null) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    var status by remember(target) { mutableStateOf("Activa Shizuku y pulsa Iniciar aquí") }
+    var status by remember(target) { mutableStateOf(EmbeddedPanelStatus()) }
     val controller = remember(target) { RealAppController(context, target) { status = it } }
-    SpatialGlassSurface(modifier, cornerRadius = 26.dp) {
-        Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                Txt("$title · app real", 18.sp, modifier = Modifier.weight(1f))
-                SmallAction("Iniciar aquí") { controller.start() }
-                SmallAction("Atrás") { controller.back() }
-                SmallAction("Cerrar") { controller.stop() }
-            }
-            AndroidView(factory = { TextureView(it).also(controller::attach) },
-                modifier = Modifier.weight(1f).fillMaxWidth())
-            Txt(status, 14.sp)
-            SmallAction("Comprobar interacción") { controller.refreshStatus() }
-        }
+    EmbeddedPanelFrame(title, status, modifier, controller::start, expanded, onExpand) {
+        AndroidView(factory = { TextureView(it).also(controller::attach) }, modifier = Modifier.fillMaxSize())
     }
     DisposableEffect(controller, lifecycle) {
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_STOP) controller.stop() }
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> controller.setActive(true)
+                Lifecycle.Event.ON_STOP -> controller.setActive(false)
+                else -> Unit
+            }
+        }
         lifecycle.addObserver(observer)
+        controller.setActive(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
         onDispose { lifecycle.removeObserver(observer); controller.dispose() }
     }
 }
 
+internal data class EmbeddedPanelStatus(val message: String = "Conectando…", val running: Boolean = false,
+    val retry: Boolean = false)
+
+/** The guest owns the full panel. Connection help appears only until it is running. */
+@Composable
+internal fun EmbeddedPanelFrame(title: String, status: EmbeddedPanelStatus, modifier: Modifier,
+    onRetry: () -> Unit, expanded: Boolean = false, onExpand: (() -> Unit)? = null,
+    content: @Composable () -> Unit) {
+    Box(modifier.clip(RoundedCornerShape(12.dp)).background(Color.Black)
+        .semantics { contentDescription = "Panel de $title" }) {
+        content()
+        if (!status.running) {
+            Column(Modifier.fillMaxSize().background(LocalBackdrop.current.palette.abyss).padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                Txt(title, 20.sp)
+                Spacer(Modifier.height(8.dp))
+                Txt(status.message, 15.sp)
+                if (status.retry) SmallAction("Reintentar", onRetry)
+            }
+        }
+        if (onExpand != null) Box(Modifier.align(Alignment.TopEnd).padding(6.dp).size(44.dp)
+            .clip(RoundedCornerShape(12.dp)).background(Color(0xD9222936))
+            .semantics { contentDescription = if (expanded) "Reducir mapa" else "Ampliar mapa" }
+            .bounceClick(onClick = onExpand), contentAlignment = Alignment.Center) {
+            Txt(if (expanded) "↙" else "⛶", 24.sp, color = Color.White)
+        }
+    }
+}
+
 private class RealAppController(private val context: Context, private val target: String,
-    private val update: (String) -> Unit) : TextureView.SurfaceTextureListener {
+    private val update: (EmbeddedPanelStatus) -> Unit) : TextureView.SurfaceTextureListener {
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
     private var view: TextureView? = null
@@ -77,17 +110,33 @@ private class RealAppController(private val context: Context, private val target
     private var ready = false
     private var disposed = false
     private var closing = false
+    private var active = false
+    private var restartAfterClose = false
     private var connectTimeout: Runnable? = null
     private val lifetime = Binder()
+    // A quickly reopened tab must not reuse a service whose previous host is still closing.
+    private val serviceTag = "glasscar-embed-$target-${java.util.UUID.randomUUID()}"
     private val permissionListener = Shizuku.OnRequestPermissionResultListener { code, result ->
-        if (code == REQUEST_CODE && !disposed) tell(if (result == PackageManager.PERMISSION_GRANTED)
-            "Autorizado. Pulsa Iniciar aquí" else "Sin autorización de Shizuku")
+        if (code == requestCode && !disposed) main.post {
+            if (!disposed && active) {
+                if (result == PackageManager.PERMISSION_GRANTED) start()
+                else tell("Autoriza GlassCar en Shizuku para abrir esta app")
+            }
+        }
     }
 
+    private val requestCode = 8420 + EmbeddingPolicy.components.keys.indexOf(target)
     init { Shizuku.addRequestPermissionResultListener(permissionListener) }
-    private fun tell(text: String) {
+    private fun tell(text: String, retry: Boolean = true) {
         EmbeddingReport.record(target, text)
-        main.post { if (!disposed) update(text) }
+        val state = EmbeddedPanelStatus(text, running = ready, retry = retry)
+        main.post { if (!disposed) update(state) }
+    }
+
+    fun setActive(value: Boolean) {
+        if (disposed || active == value) return
+        active = value
+        if (value) start() else { restartAfterClose = false; stop() }
     }
 
     fun attach(texture: TextureView) {
@@ -107,27 +156,26 @@ private class RealAppController(private val context: Context, private val target
                 true
             }
         }
+        if (texture.isAvailable) start()
     }
 
     fun start() {
-        if (disposed) return
-        if (display != null || closing) { tell("Cierra la sesión actual antes de reintentar"); return }
-        if (Build.VERSION.SDK_INT != 29) { tell("Esta prueba está preparada para API 29"); return }
+        if (disposed || !active || display != null) return
+        if (closing) { restartAfterClose = true; return }
+        val texture = view
+        val image = texture?.surfaceTexture
+        if (texture == null || image == null || texture.width < 64 || texture.height < 64) return
+        if (Build.VERSION.SDK_INT != 29) { tell("La integración requiere el Android 10 del estéreo"); return }
         if (!context.packageManager.hasSystemFeature(PackageManager.FEATURE_ACTIVITIES_ON_SECONDARY_DISPLAYS)) {
             tell("El firmware no declara soporte para apps en pantallas secundarias"); return
         }
-        if (!Shizuku.pingBinder()) { tell("Activa Shizuku mediante ADB o root y vuelve a pulsar Iniciar aquí"); return }
+        if (!Shizuku.pingBinder()) { tell("Abre Shizuku, inicia su servicio y vuelve a intentar"); return }
         try {
             if (Shizuku.getVersion() < 12) { tell("Actualiza Shizuku antes de continuar"); return }
             if (Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
-                Shizuku.requestPermission(REQUEST_CODE)
-                tell("Autoriza GlassCar en Shizuku; después pulsa Iniciar aquí")
+                Shizuku.requestPermission(requestCode)
+                tell("Autoriza GlassCar en Shizuku para abrir esta app")
                 return
-            }
-            val texture = view
-            val image = texture?.surfaceTexture
-            if (texture == null || image == null || texture.width < 64 || texture.height < 64) {
-                tell("Espera a que el panel tenga tamaño y vuelve a intentar"); return
             }
             val component = ComponentName.unflattenFromString(EmbeddingPolicy.components.getValue(target))!!
             @Suppress("DEPRECATION")
@@ -142,8 +190,12 @@ private class RealAppController(private val context: Context, private val target
             val current = display ?: throw IllegalStateException("Sin pantalla virtual")
             val token = ++generation
             val userArgs = Shizuku.UserServiceArgs(ComponentName(context.packageName, EmbeddedAppService::class.java.name))
-                .daemon(false).processNameSuffix(if (target.contains("maps")) "maps_panel" else "tlink_panel")
-                .tag("glasscar-embed-$target").version(BuildConfig.VERSION_CODE)
+                .daemon(false).processNameSuffix(when (target) {
+                    "com.google.android.apps.maps" -> "maps_panel"
+                    "com.williexing.android.apps.xcdvr1" -> "dvr_panel"
+                    else -> "tlink_panel"
+                })
+                .tag(serviceTag).version(BuildConfig.VERSION_CODE)
             args = userArgs
             val callback = object : ServiceConnection {
                 override fun onServiceConnected(name: ComponentName, binder: IBinder) {
@@ -157,7 +209,7 @@ private class RealAppController(private val context: Context, private val target
                         main.post {
                             if (!disposed && token == generation) {
                                 ready = result.startsWith("OK:")
-                                tell(result)
+                                tell(result, retry = !ready)
                                 if (!ready) stop(result)
                             }
                         }
@@ -168,7 +220,7 @@ private class RealAppController(private val context: Context, private val target
                 }
             }
             connection = callback
-            tell("Iniciando $target dentro del panel…")
+            tell("Conectando…", retry = false)
             Shizuku.bindUserService(userArgs, callback)
             connectTimeout = Runnable {
                 if (!disposed && token == generation && remote == null) stop("Shizuku no conectó el servicio. Revisa su autorización")
@@ -201,8 +253,9 @@ private class RealAppController(private val context: Context, private val target
         }
     }
 
-    fun stop(message: String = "Panel cerrado. Pulsa Iniciar aquí para abrirlo") {
+    fun stop(message: String = "Conectando…") {
         if (disposed) return
+        if (closing) { tell(message); return }
         connectTimeout?.let(main::removeCallbacks); connectTimeout = null
         generation++; ready = false
         val oldDisplay = display; display = null
@@ -219,12 +272,18 @@ private class RealAppController(private val context: Context, private val target
                 if (oldArgs != null && oldConnection != null) runCatching { Shizuku.unbindUserService(oldArgs, oldConnection, true) }
                 runCatching { oldDisplay?.release() }; oldSurface?.release()
                 closing = false
+                if (restartAfterClose && active && !disposed) {
+                    restartAfterClose = false
+                    start()
+                }
             }
         }
         tell(message)
     }
     fun dispose() {
         if (disposed) return
+        active = false
+        restartAfterClose = false
         stop()
         disposed = true
         Shizuku.removeRequestPermissionResultListener(permissionListener)
@@ -233,12 +292,21 @@ private class RealAppController(private val context: Context, private val target
         view = null
         worker.shutdown()
     }
-    override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) = Unit
+    override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) { start() }
     override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
-        if (display != null) stop("El panel cambió de tamaño. Pulsa Iniciar aquí")
+        if (width < 64 || height < 64) return
+        val current = display
+        if (current == null) start() else runCatching {
+            surface.setDefaultBufferSize(width, height)
+            current.resize(width, height, context.resources.displayMetrics.densityDpi)
+        }.onFailure { stop("No se pudo ajustar el tamaño. Vuelve a intentar") }
     }
-    override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean { stop(); return true }
+    override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
+        // A replacement surface may arrive before the old session has finished closing.
+        restartAfterClose = false
+        stop()
+        return true
+    }
     override fun onSurfaceTextureUpdated(surface: SurfaceTexture) = Unit
-    companion object { private const val REQUEST_CODE = 8420 }
 }
 

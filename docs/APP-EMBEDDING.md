@@ -1,4 +1,4 @@
-# Tlink5 y Google Maps reales — prototipo API 29
+# Tlink5, Google Maps y HD Car DVR — paneles API 29
 
 ## Prioridad y estado real
 
@@ -6,7 +6,7 @@ El usuario pide las aplicaciones completas dentro de GlassCar, con interacción.
 
 Se implementó una ruta experimental de apps reales con VirtualDisplay + un UserService de Shizuku iniciado y autorizado por el usuario. La variante `embedding` sustituye los paneles Maps/CarPlay por estos hosts. No usa OSM, Maps SDK, WebView, capturas ni widgets para fingir la integración. Tampoco contiene ni modifica APK de Google/Tlink.
 
-**Todavía no se ha validado en el TS10.** Hacen falta acceso ADB/root autorizado y pruebas de imagen, gestos, teclado, navegación, proyección CarPlay y recuperación. ADB se instaló localmente y `adb devices` no mostró ningún equipo conectado. No se ha conectado al estéreo ni configurado root. No confundir la compilación de esta prueba con funcionamiento físico.
+**Maps y Tlink5 confirmados por el usuario en el TS10:** las fotografías muestran Google Maps y CarPlay proyectado dentro de GlassCar, y el usuario indica que funcionan. Esto valida la ruta básica de incrustación; no cubre todas las combinaciones de teclado, reconexión y reanudación. La nueva distribución 4.3 y la incrustación de HD Car DVR todavía requieren prueba física. El APK Topway anterior solo añadió datos del vehículo y no incluía estos cambios visuales.
 
 ## Evidencia de este equipo
 
@@ -35,10 +35,13 @@ Fuentes primarias:
 ## Implementación
 
 - Variante `embedding`: paquete `com.glasscar.launcher.embedtest`, nombre **GlassCar Apps Reales Prueba**, instalada aparte de las pruebas de audio/cámara.
-- `RealAppPanel`: superficie de tamaño real en píxeles; inicio explícito, Atrás, Cerrar y comprobación de estado. Se usa en el panel Maps del dashboard y en la página CarPlay sólo en esta variante.
-- `RealAppController`: crea VirtualDisplay PUBLIC | OWN_CONTENT_ONLY | DESTROY_CONTENT_ON_REMOVAL; al salir detiene sesión/libera display/surface y desvincula UserService. Un cambio de tamaño exige reinicio explícito. Inicio/cierre se serializan para no destruir el display mientras el comando de inicio sigue pendiente.
+- `RealAppPanel`: la app ocupa toda la superficie, sin título, marco de diagnóstico ni botones de prueba. Arranca cuando el panel está visible, la superficie está disponible y Shizuku está autorizado. La ayuda y Reintentar aparecen únicamente durante un fallo; los detalles técnicos siguen en Diagnóstico del estéreo.
+- CarPlay oculta el dock lateral y reduce márgenes; conserva las cuatro pestañas, volumen y brillo. Al volver a Tablero reaparece el dock. No lanza Tlink externamente al seleccionar la pestaña en la variante embedding.
+- Maps ocupa el 64% del tablero y recupera el espacio antes dedicado a controles de prueba. El botón Ampliar mapa permite usar el área central completa; Reducir mapa o Tablero restauran la distribución. Los gestos sobre las apps quedan para sus mapas/listas; se cambia de página con las pestañas.
+- Cámara usa HD Car DVR mediante su actividad pública `com.williexing.android.apps.xcdvr2.Splash`, identificada en el APK 2.13.3-gsj/3311, paquete `com.williexing.android.apps.xcdvr1`. No se abre su alias privado ni se llama a sus servicios USB. Su imagen en una pantalla secundaria queda pendiente de validación física.
+- `RealAppController`: crea VirtualDisplay PUBLIC | OWN_CONTENT_ONLY | DESTROY_CONTENT_ON_REMOVAL; al salir detiene sesión/libera display/surface y desvincula UserService. Ajusta buffer y display al cambiar de tamaño. Inicio/cierre se serializan para no destruir el display mientras el comando de inicio sigue pendiente; vuelve a arrancar al regresar a primer plano.
 - Antes de iniciar exige FEATURE_ACTIVITIES_ON_SECONDARY_DISPLAYS: AOSP canPlaceEntityOnDisplay rechaza displays secundarios cuando el sistema no soporta esa capacidad. Si falta, no se envía el comando de lanzamiento ni se ofrece apertura externa como sustituto.
-- `EmbeddedAppService`: UserService no registrado como Service exportado. Se obtiene exclusivamente mediante Shizuku. Sólo acepta los dos componentes exactos; comprueba propietario real y nombre del display, UID del llamador, vida del Binder y displayId > 0. No ofrece ejecución arbitraria de comandos ni entrada sobre la pantalla principal.
+- `EmbeddedAppService`: UserService no registrado como Service exportado. Se obtiene exclusivamente mediante Shizuku. Sólo acepta los tres componentes exactos (Maps, Tlink5 y Splash de HD Car DVR); comprueba propietario real y nombre del display, UID del llamador, vida del Binder y displayId > 0. No ofrece ejecución arbitraria de comandos ni entrada sobre la pantalla principal.
 - Inicio con argumentos separados de `/system/bin/am start --user current --display ID -n COMPONENT -f 0x10000000`, sin shell interpolado, force-stop, edición de settings ni privilegios persistentes. Después consulta stacks y exige que la app esté realmente en ese display antes de habilitar interacción. Si singleTask/firmware la desvía, se informa el fallo; no se considera integración completada.
 - Toques por MotionEvent parcelado, conservando punteros y acciones; inyección con displayId del panel. Atrás también apunta a ese display. No se capturan ni almacenan imágenes ni texto de las apps. Los mensajes técnicos se incluyen en Diagnóstico del estéreo.
 - Shizuku API/provider 13.1.5. Provider protegido con INTERACT_ACROSS_USERS_FULL sólo en el manifest de la variante embedding. No se solicitan permisos signature para fingir acceso.
@@ -47,10 +50,11 @@ Fuentes primarias:
 
 1. Confirmar que el TS10 dispone de ADB accesible o root existente. No rootear ni flashear como paso automático. API 29 normalmente requiere computadora para iniciar Shizuku por ADB; no asumir el emparejamiento inalámbrico de Android 11 sólo por la etiqueta Android 13.
 2. Instalar Shizuku desde su [fuente oficial](https://shizuku.rikka.app/download/), iniciarlo por el método que indique para ese equipo y autorizar únicamente esta instalación de GlassCar cuando lo solicite. Sin root, suele requerir repetir arranque tras reiniciar el sistema.
-3. Instalar GlassCar Apps Reales Prueba. Con el equipo estacionado, pulsar Iniciar aquí en Google Maps, autorizar Shizuku y volver a pulsar. Confirmar que sigue visible GlassCar alrededor del mapa.
-4. Probar arrastre, zoom de dos dedos, búsqueda/teclado y Atrás. Cerrar y verificar liberación. Probar otra apertura y cambio de página.
-5. Repetir en CarPlay/Tlink5, conectar iPhone y comprobar que la proyección, audio y gestos permanecen funcionales dentro del panel. Tlink declara no redimensionable: tamaño, orientación, reinicio de proyección o salida al display principal son fallos posibles pendientes de medir.
-6. Copiar Diagnóstico del estéreo y describir qué se vio. Que aparezca una tarea en el display no prueba que haya imagen útil o teclado correcto.
+3. Instalar GlassCar Apps Reales Prueba 4.3. Los APK de prueba de GitHub Actions usan una firma debug generada en cada runner; no se garantiza una actualización sobre otro APK. Si Android informa un conflicto de firma, guardar primero la configuración que se quiera conservar y desinstalar únicamente GlassCar Apps Reales Prueba antes de instalar el nuevo APK (se borran sus preferencias locales). Con el equipo estacionado y Shizuku activo, Maps debe abrirse automáticamente. Autorizar GlassCar si se solicita; si Shizuku estaba apagado, iniciarlo y pulsar Reintentar.
+4. Probar arrastre, zoom y búsqueda/teclado en Maps. Ampliar y reducir el mapa, comprobando imagen, coordenadas táctiles y conservación de la ruta.
+5. Abrir CarPlay: debe ocupar casi toda la pantalla, sin dock ni textos de prueba. Conectar el iPhone y comprobar proyección, audio y gestos. Cambiar a Tablero y volver; probar también salir de GlassCar y regresar.
+6. Abrir Cámara: debe iniciar HD Car DVR dentro del panel. Comprobar imagen real y controles de esa app. Si falla, copiar el diagnóstico; Maps/Tlink funcionando no garantizan que DVR admita la misma ruta.
+7. Confirmar que siguen visibles las cuatro pestañas y volumen/brillo, y que el dock reaparece en Tablero e Instrumentos. Los cambios no modifican el contrato AIDL de CarInfoService.
 
 ## Límites conocidos
 

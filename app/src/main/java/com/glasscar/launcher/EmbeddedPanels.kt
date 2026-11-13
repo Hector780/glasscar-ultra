@@ -56,9 +56,10 @@ fun HostedWidget(id: Int, actions: LauncherActions, modifier: Modifier): Boolean
 
 @Composable
 fun NavigationPanel(drive: DriveState, config: LauncherConfig, apps: List<AppEntry>, actions: LauncherActions,
-    onConfigure: (String) -> Unit, modifier: Modifier, speed: ResolvedSpeed = ResolvedSpeed(0f, SpeedSource.NONE)) {
+    onConfigure: (String) -> Unit, modifier: Modifier, speed: ResolvedSpeed = ResolvedSpeed(0f, SpeedSource.NONE),
+    expanded: Boolean = false, onExpand: (() -> Unit)? = null) {
     if (BuildConfig.REAL_APP_EMBEDDING) {
-        RealAppPanel("com.google.android.apps.maps", "Google Maps", modifier)
+        RealAppPanel("com.google.android.apps.maps", "Google Maps", modifier, expanded, onExpand)
         return
     }
     val navigation by MediaListenerService.navigation.collectAsState()
@@ -185,6 +186,10 @@ private fun GoogleLiveMap(drive: DriveState, follow: Boolean, modifier: Modifier
 @Composable
 fun CameraPanel(config: LauncherConfig, apps: List<AppEntry>, actions: LauncherActions, onConfigure: (String) -> Unit,
     permissionVersion: Int, modifier: Modifier) {
+    if (BuildConfig.REAL_APP_EMBEDDING) {
+        RealAppPanel("com.williexing.android.apps.xcdvr1", "HD Car DVR", modifier)
+        return
+    }
     val context = LocalContext.current
     val allowed = remember(permissionVersion) { ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED }
     val cameras = remember(permissionVersion) { availableCameras(context) }

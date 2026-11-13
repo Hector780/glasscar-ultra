@@ -37,6 +37,15 @@ class EmbeddingPolicyTest {
         assertFalse(command.contains("sh"))
         assertFalse(command.contains("-S")) // no force-stop of an active projection/navigation session
     }
+    @Test fun dvrUsesItsPublicLauncherAndNeverItsPrivateActivityOrService() {
+        val dvr = "com.williexing.android.apps.xcdvr1"
+        val command = EmbeddingPolicy.launchCommand(9, dvr)
+        assertEquals("9", command[command.indexOf("--display") + 1])
+        assertEquals("$dvr/com.williexing.android.apps.xcdvr2.Splash", command[command.indexOf("-n") + 1])
+        assertTrue(EmbeddingPolicy.allowsDisplay(9, 10001, 10001, EmbeddingPolicy.displayName(10001, dvr), dvr))
+        assertFalse(EmbeddingPolicy.allowsDisplay(0, 10001, 10001, EmbeddingPolicy.displayName(10001, dvr), dvr))
+        assertFalse(command.any { it.contains("MainActivity") || it.contains("XUFSCameraService") })
+    }
     @Test fun invalidTouchDoesNotReachGuestInput() {
         for ((action, x, expected) in listOf(Triple(MotionEvent.ACTION_DOWN, 12f, true),
             Triple(MotionEvent.ACTION_CANCEL, 12f, true), Triple(MotionEvent.ACTION_HOVER_MOVE, 12f, false),

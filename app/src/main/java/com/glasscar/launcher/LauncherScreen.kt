@@ -192,10 +192,13 @@ private fun LauncherContent(
     var sheet by rememberSaveable { mutableStateOf<String?>(null) }
     val configure: (String) -> Unit = { sheet = it }
     val pager = rememberPagerState(pageCount = { 4 })
+    var mapExpanded by rememberSaveable { mutableStateOf(false) }
+    val immersive = !showDrawer && (pager.currentPage == 1 ||
+        (pager.currentPage == 0 && mapExpanded && !config.dashboardCamera))
     var carPlayOpened by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(pager.settledPage, apps.isNotEmpty(), config.assignments["carplay"], config.widgets["carplay"]) {
         if (pager.settledPage != 1) carPlayOpened = false
-        else if (!carPlayOpened && config.widgets["carplay"] == null) {
+        else if (!BuildConfig.REAL_APP_EMBEDDING && !carPlayOpened && config.widgets["carplay"] == null) {
             if (resolveApp(apps, config, "carplay", QuickShortcuts[6]) != null) {
                 carPlayOpened = true
                 actions.openSlot("carplay", QuickShortcuts[6], apps)
@@ -262,39 +265,46 @@ private fun LauncherContent(
     var rootSize by remember { mutableStateOf(Size.Zero) }
 
 
-    BackHandler(enabled = sheet != null || showDrawer || pager.currentPage != 0) {
-        when { sheet != null -> sheet = null; showDrawer -> onCloseDrawer(); else -> scope.launch { pager.animateScrollToPage(0) } }
+    BackHandler(enabled = sheet != null || showDrawer || mapExpanded || pager.currentPage != 0) {
+        when {
+            sheet != null -> sheet = null
+            showDrawer -> onCloseDrawer()
+            mapExpanded -> mapExpanded = false
+            else -> scope.launch { pager.scrollToPage(0) }
+        }
     }
     CompositionLocalProvider(LocalBackdrop provides Backdrop(rootSize, palette)) {
         Box(Modifier.fillMaxSize().onSizeChanged { rootSize = Size(it.width.toFloat(), it.height.toFloat()) }
             .drawBehind { drawSpaceBackground(palette, size) }
-            .pointerInput(showDrawer) {
-                if (!showDrawer) {
+            .pointerInput(showDrawer, immersive) {
+                if (!showDrawer && !immersive && !BuildConfig.REAL_APP_EMBEDDING) {
                     var distance = 0f
                     detectVerticalDragGestures(onDragStart = { distance = 0f }, onDragEnd = {
                         if (kotlin.math.abs(distance) > 64.dp.toPx()) onToggleDrawer()
                     }) { _, amount -> distance += amount }
                 }
             }) {
-            Row(Modifier.fillMaxSize().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                SpatialDock(status, drive.hasFix, apps, config, actions, onToggleDrawer, configure,
+            Row(Modifier.fillMaxSize().padding(if (immersive) 4.dp else 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (!immersive) SpatialDock(status, drive.hasFix, apps, config, actions, onToggleDrawer, configure,
                     Modifier.width(92.dp).fillMaxHeight())
-                Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(if (immersive) 2.dp else 10.dp)) {
+                    Row(Modifier.fillMaxWidth().height(if (immersive) 44.dp else 48.dp), verticalAlignment = Alignment.CenterVertically) {
                         listOf("Tablero", "CarPlay", "Cámara", "Instrumentos").forEachIndexed { index, name ->
                             Box(Modifier.weight(1f).clip(RoundedCornerShape(18.dp))
                                 .background(if (!showDrawer && pager.currentPage == index) palette.pillFill else Color.Transparent)
-                                .bounceClick { onCloseDrawer(); scope.launch { pager.animateScrollToPage(index) } }
+                                .bounceClick { onCloseDrawer(); mapExpanded = false; scope.launch { pager.scrollToPage(index) } }
                                 .padding(vertical = 10.dp), contentAlignment = Alignment.Center) { Txt(name, 17.sp, FontWeight.SemiBold) }
                         }
                     }
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         if (showDrawer) AppDrawer(apps) { actions.open(it); onCloseDrawer() }
-                        else HorizontalPager(pager, Modifier.fillMaxSize(), beyondBoundsPageCount = 0) { page ->
+                        else HorizontalPager(pager, Modifier.fillMaxSize(), beyondBoundsPageCount = 0,
+                            userScrollEnabled = !BuildConfig.REAL_APP_EMBEDDING) { page ->
                             when (page) {
-                                0 -> Dashboard(drive, speed, gear, manualGear != null, { manualGear = it }, { manualGear = null },
-                                    media, weather, apps, status, actions, config, configure, can, permissionVersion)
-                                1 -> CarPlayPanel(config, apps, actions, configure, Modifier.fillMaxSize())
+                                0 -> if (pager.settledPage == 0) Dashboard(drive, speed, gear, manualGear != null, { manualGear = it }, { manualGear = null },
+                                    media, weather, apps, status, actions, config, configure, can, permissionVersion,
+                                    mapExpanded, { mapExpanded = !mapExpanded })
+                                1 -> if (pager.settledPage == 1) CarPlayPanel(config, apps, actions, configure, Modifier.fillMaxSize())
                                 2 -> if (pager.settledPage == 2) CameraPanel(config, apps, actions, configure, permissionVersion, Modifier.fillMaxSize())
                                 3 -> ClusterCard(drive, speed, gear, manualGear != null, { manualGear = it }, { manualGear = null },
                                     apps, actions, Modifier.fillMaxSize())
@@ -302,7 +312,7 @@ private fun LauncherContent(
                         }
                     }
                     QuickControlBar(status, night, { prefs.setNight(!night) }, actions,
-                        Modifier.fillMaxWidth().height(58.dp), config.nativeAudio)
+                        Modifier.fillMaxWidth().height(if (immersive) 48.dp else 58.dp), config.nativeAudio)
                 }
             }
             sheet?.let { selected ->
@@ -459,14 +469,16 @@ private fun DockButton(shortcut: Shortcut, active: Boolean, onClick: () -> Unit)
 private fun Dashboard(drive: DriveState, speed: ResolvedSpeed, gear: Gear?, gearIsManual: Boolean,
     onGearSelected: (Gear) -> Unit, onGearAuto: () -> Unit, media: MediaInfo, weather: WeatherInfo,
     apps: List<AppEntry>, status: DeviceStatus, actions: LauncherActions,
-    config: LauncherConfig = LauncherConfig(), configure: (String) -> Unit = {}, can: CanState = CanState(), permissionVersion: Int = 0) {
+    config: LauncherConfig = LauncherConfig(), configure: (String) -> Unit = {}, can: CanState = CanState(), permissionVersion: Int = 0,
+    mapExpanded: Boolean = false, onExpandMap: () -> Unit = {}) {
+    val expanded = mapExpanded && !config.dashboardCamera
     Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Column(Modifier.weight(0.52f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.weight(if (BuildConfig.REAL_APP_EMBEDDING) 0.64f else 0.52f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (config.dashboardCamera) CameraPanel(config, apps, actions, configure, permissionVersion, Modifier.weight(1f).fillMaxWidth())
-            else NavigationPanel(drive, config, apps, actions, configure, Modifier.weight(1f).fillMaxWidth(), speed)
-            QuickAppsWidget(apps, status, actions, Modifier.fillMaxWidth().height(100.dp), config, configure)
+            else NavigationPanel(drive, config, apps, actions, configure, Modifier.weight(1f).fillMaxWidth(), speed, expanded, onExpandMap)
+            if (!expanded) QuickAppsWidget(apps, status, actions, Modifier.fillMaxWidth().height(100.dp), config, configure)
         }
-        Column(Modifier.weight(0.48f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        if (!expanded) Column(Modifier.weight(if (BuildConfig.REAL_APP_EMBEDDING) 0.36f else 0.48f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             NowPlayingCard(media, apps, actions, Modifier.weight(0.64f).fillMaxWidth(), configure)
             WeatherWidget(weather, drive, Modifier.weight(0.36f).fillMaxWidth()) { configure("weather_detail") }
         }

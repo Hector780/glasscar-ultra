@@ -12,8 +12,8 @@ android {
         resValue("string", "app_name", "GlassCar Ultra")
         minSdk = 28
         targetSdk = 34
-        versionCode = 6
-        versionName = "4.2-ts10-test"
+        versionCode = 7
+        versionName = "4.3-ts10-panels"
         buildConfigField("boolean", "REAL_APP_EMBEDDING", "false")
         val mapsKey = providers.gradleProperty("MAPS_API_KEY").orElse(providers.environmentVariable("MAPS_API_KEY")).orElse("").get()
         resValue("string", "google_maps_key", mapsKey)

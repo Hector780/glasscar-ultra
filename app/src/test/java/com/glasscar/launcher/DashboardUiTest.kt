@@ -82,6 +82,17 @@ class DashboardUiTest {
         compose.onNodeWithText("Añadir widget de CarPlay").assertDoesNotExist()
         screenshot("carplay-no-widget")
     }
+    @Test fun carPlayUsesFullWidthAndRestoresDockOnTabChange() {
+        compose.onNodeWithContentDescription("Abrir aplicaciones").assertIsDisplayed()
+        compose.onNodeWithText("CarPlay").performClick()
+        compose.onNodeWithContentDescription("Abrir aplicaciones").assertDoesNotExist()
+        for (tab in listOf("Tablero", "Cámara", "Instrumentos")) compose.onNodeWithText(tab).assertIsDisplayed()
+        val panel = compose.onNodeWithText("CarPlay · Tlink5").fetchSemanticsNode().boundsInRoot
+        org.junit.Assert.assertTrue("CarPlay should reclaim the left dock", panel.left < 40f)
+        compose.onNodeWithText("Tablero").performClick()
+        compose.onNodeWithContentDescription("Abrir aplicaciones").assertIsDisplayed()
+        compose.onNodeWithText("Clima exterior").assertIsDisplayed()
+    }
     @Test @Config(qualifiers = "w1920dp-h1080dp-land-mdpi")
     fun largeLowDensityHeadUnitKeepsReadableControls() {
         compose.onNodeWithContentDescription("Cambiar página de accesos").assertIsDisplayed()
