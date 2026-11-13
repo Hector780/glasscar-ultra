@@ -110,6 +110,8 @@ import kotlin.math.sin
 /** Acciones que la interfaz le pide a la Activity. */
 interface LauncherActions {
     fun open(app: AppEntry)
+    fun uninstall(app: AppEntry) {}
+    fun openRearCamera() {}
     fun open(shortcut: Shortcut, apps: List<AppEntry>)
     fun openSlot(slot: String, shortcut: Shortcut, apps: List<AppEntry>) { open(shortcut, apps) }
     fun openNativeControls() {}
@@ -297,13 +299,13 @@ private fun LauncherContent(
                         }
                     }
                     Box(Modifier.weight(1f).fillMaxWidth()) {
-                        if (showDrawer) AppDrawer(apps) { actions.open(it); onCloseDrawer() }
+                        if (showDrawer) AppDrawer(apps, actions::uninstall) { actions.open(it); onCloseDrawer() }
                         else HorizontalPager(pager, Modifier.fillMaxSize(), beyondBoundsPageCount = 0,
                             userScrollEnabled = !BuildConfig.REAL_APP_EMBEDDING) { page ->
                             when (page) {
                                 0 -> if (pager.settledPage == 0) Dashboard(drive, speed, gear, manualGear != null, { manualGear = it }, { manualGear = null },
                                     media, weather, apps, status, actions, config, configure, can, permissionVersion,
-                                    mapExpanded, { mapExpanded = !mapExpanded })
+                                    mapExpanded, { mapExpanded = !mapExpanded }, { scope.launch { pager.scrollToPage(1) } })
                                 1 -> if (pager.settledPage == 1) CarPlayPanel(config, apps, actions, configure, Modifier.fillMaxSize())
                                 2 -> if (pager.settledPage == 2) CameraPanel(config, apps, actions, configure, permissionVersion, Modifier.fillMaxSize())
                                 3 -> ClusterCard(drive, speed, gear, manualGear != null, { manualGear = it }, { manualGear = null },
@@ -470,7 +472,7 @@ private fun Dashboard(drive: DriveState, speed: ResolvedSpeed, gear: Gear?, gear
     onGearSelected: (Gear) -> Unit, onGearAuto: () -> Unit, media: MediaInfo, weather: WeatherInfo,
     apps: List<AppEntry>, status: DeviceStatus, actions: LauncherActions,
     config: LauncherConfig = LauncherConfig(), configure: (String) -> Unit = {}, can: CanState = CanState(), permissionVersion: Int = 0,
-    mapExpanded: Boolean = false, onExpandMap: () -> Unit = {}) {
+    mapExpanded: Boolean = false, onExpandMap: () -> Unit = {}, onOpenCarPlay: () -> Unit = {}) {
     val expanded = mapExpanded && !config.dashboardCamera
     Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Column(Modifier.weight(if (BuildConfig.REAL_APP_EMBEDDING) 0.64f else 0.52f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -479,7 +481,7 @@ private fun Dashboard(drive: DriveState, speed: ResolvedSpeed, gear: Gear?, gear
             if (!expanded) QuickAppsWidget(apps, status, actions, Modifier.fillMaxWidth().height(100.dp), config, configure)
         }
         if (!expanded) Column(Modifier.weight(if (BuildConfig.REAL_APP_EMBEDDING) 0.36f else 0.48f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            NowPlayingCard(media, apps, actions, Modifier.weight(0.64f).fillMaxWidth(), configure)
+            NowPlayingCard(media, apps, actions, Modifier.weight(0.64f).fillMaxWidth(), configure, onOpenCarPlay)
             WeatherWidget(weather, drive, Modifier.weight(0.36f).fillMaxWidth()) { configure("weather_detail") }
         }
     }
@@ -745,15 +747,21 @@ private val PlaceholderArt = Brush.linearGradient(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun NowPlayingCard(media: MediaInfo, apps: List<AppEntry>, actions: LauncherActions, modifier: Modifier,
-    configure: (String) -> Unit = {}) {
+    configure: (String) -> Unit = {}, onOpenCarPlay: () -> Unit = {}) {
     var clock by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     var showLyrics by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(media.isPlaying, media.updateTime) { clock = SystemClock.elapsedRealtime(); while (media.isPlaying) { delay(500); clock = SystemClock.elapsedRealtime() } }
     val position = media.livePosition(clock)
     val fraction = if (media.durationMs > 0) position.toFloat() / media.durationMs else 0f
-    val title = if (!media.hasSession) "Apple Music" else media.title.ifBlank { "Sin título" }
+    val title = if (!media.hasSession) "Tu música" else media.title.ifBlank { "Sin título" }
     val subtitle = when { !media.hasAccess -> "Permite mostrar tu música"; !media.hasSession -> "Toca para reproducir"; else -> media.artist }
-    val openMusic = { actions.openSlot("music", DockShortcuts[1], apps) }
+    val openMusic = {
+        when {
+            media.appPackage == TLINK_PACKAGE && BuildConfig.REAL_APP_EMBEDDING -> onOpenCarPlay()
+            media.appPackage != null -> actions.openPackage(media.appPackage)
+            else -> actions.openSlot("music", DockShortcuts[1], apps)
+        }
+    }
     SpatialGlassSurface(modifier, cornerRadius = 26.dp, glow = media.dominant ?: Ultra.Magenta) {
         Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -780,7 +788,9 @@ private fun NowPlayingCard(media: MediaInfo, apps: List<AppEntry>, actions: Laun
             Box(Modifier.fillMaxWidth().height(4.dp).clip(CircleShape).background(LocalBackdrop.current.palette.trackFill)) {
                 Box(Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f)).fillMaxHeight().background(LocalBackdrop.current.palette.textPrimary))
             }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            if (media.hasSession && !media.canControl) {
+                SmallAction("Controles en CarPlay", openMusic)
+            } else Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 Txt(formatTime(position), 11.sp, color = Ultra.Secondary)
                 RoundGlassButton(Glyph.Prev, 42.dp, Color(0x14FFFFFF)) { actions.previous() }
                 RoundGlassButton(if (media.isPlaying) Glyph.Pause else Glyph.Play, 48.dp, Color(0x40FFFFFF)) {
@@ -1040,45 +1050,6 @@ internal fun GlassTube(
 // =====================================================================
 //  Cajón de aplicaciones
 // =====================================================================
-
-@Composable
-private fun AppDrawer(apps: List<AppEntry>, onOpen: (AppEntry) -> Unit) {
-    SpatialGlassSurface(Modifier.fillMaxSize(), cornerRadius = 32.dp) {
-        if (apps.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Txt("Cargando apps…", 16.sp, FontWeight.Medium, Ultra.Secondary)
-            }
-        } else {
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(120.dp),
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(24.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                items(apps, key = { it.packageName + "/" + it.activityName }) { app ->
-                    Column(
-                        Modifier.bounceClick { onOpen(app) },
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Box(
-                            Modifier
-                                .size(88.dp)
-                                .spatialGlass(RoundedCornerShape(24)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            val isNight = LocalBackdrop.current.palette.night
-                            val displayIcon = (if (isNight) app.iconDark else app.iconLight) ?: app.icon
-                            Image(displayIcon, contentDescription = app.label, modifier = Modifier.size(64.dp))
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        Txt(app.label, 14.sp, FontWeight.Medium)
-                    }
-                }
-            }
-        }
-    }
-}
 
 // =====================================================================
 //  Vista previa en Android Studio

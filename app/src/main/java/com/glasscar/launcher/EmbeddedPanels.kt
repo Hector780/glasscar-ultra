@@ -187,7 +187,12 @@ private fun GoogleLiveMap(drive: DriveState, follow: Boolean, modifier: Modifier
 fun CameraPanel(config: LauncherConfig, apps: List<AppEntry>, actions: LauncherActions, onConfigure: (String) -> Unit,
     permissionVersion: Int, modifier: Modifier) {
     if (BuildConfig.REAL_APP_EMBEDDING) {
-        RealAppPanel("com.williexing.android.apps.xcdvr1", "HD Car DVR", modifier)
+        Column(modifier) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                SmallAction("Cámara trasera · original", actions::openRearCamera)
+            }
+            RealAppPanel("com.williexing.android.apps.xcdvr1", "HD Car DVR", Modifier.weight(1f).fillMaxWidth())
+        }
         return
     }
     val context = LocalContext.current
@@ -203,6 +208,7 @@ fun CameraPanel(config: LauncherConfig, apps: List<AppEntry>, actions: LauncherA
         Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Txt("Cámara frontal", 18.sp, modifier = Modifier.weight(1f))
+                SmallAction("Trasera", actions::openRearCamera)
                 SmallAction("Abrir DVR") { actions.openSlot("camera", QuickShortcuts[3], apps) }
                 SmallAction("⋯") { onConfigure("camera_panel") }
             }

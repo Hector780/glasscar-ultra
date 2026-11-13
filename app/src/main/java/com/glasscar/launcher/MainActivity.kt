@@ -57,8 +57,8 @@ class MainActivity : ComponentActivity(), LauncherActions {
         permissionRequest.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
     }
 
-    override fun onStart() { super.onStart(); runCatching { widgets.host.startListening() } }
-    override fun onStop() { widgets.host.stopListening(); super.onStop() }
+    override fun onStart() { super.onStart(); media.start(); runCatching { widgets.host.startListening() } }
+    override fun onStop() { media.stop(); widgets.host.stopListening(); super.onStop() }
     override fun onSaveInstanceState(outState: Bundle) { widgets.save(outState); super.onSaveInstanceState(outState) }
 
     override fun onResume() {
@@ -72,7 +72,7 @@ class MainActivity : ComponentActivity(), LauncherActions {
             if (recents.isNotEmpty()) preferences.recordRecent(recents)
         }
     }
-    override fun onPause() { location.stop(); media.stop(); canBus.stop(); TopwayAudio.stop(); super.onPause() }
+    override fun onPause() { location.stop(); canBus.stop(); TopwayAudio.stop(); super.onPause() }
     override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus); if (hasFocus) enterImmersive() }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); showDrawer.value = false }
 
@@ -88,6 +88,18 @@ class MainActivity : ComponentActivity(), LauncherActions {
             .setClassName(app.packageName, app.activityName)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
         if (safeStart(intent, app.label)) preferences.record(app)
+    }
+    override fun uninstall(app: AppEntry) {
+        // Android owns the confirmation and protects system packages. Never silently remove an app.
+        @Suppress("DEPRECATION")
+        val intent = Intent(Intent.ACTION_DELETE, Uri.fromParts("package", app.packageName, null))
+        if (!safeStart(intent, "Desinstalar ${app.label}")) {
+            safeStart(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.fromParts("package", app.packageName, null)), "Información de ${app.label}")
+        }
+    }
+    override fun openRearCamera() {
+        safeStart(RearCameraPolicy.intent(), "Cámara trasera original")
     }
     override fun open(shortcut: Shortcut, apps: List<AppEntry>) {
         val target = AppsRepository.find(apps, shortcut)

@@ -348,9 +348,11 @@ data class NavigationInfo(val title: String = "", val instruction: String = "", 
 class MediaListenerService : NotificationListenerService() {
     companion object { val navigation = MutableStateFlow(NavigationInfo()) }
     override fun onListenerConnected() {
+        ProjectionMedia.clear()
         activeNotifications?.forEach(::onNotificationPosted)
     }
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
+        if (sbn != null) ProjectionMedia.post(this, sbn)
         if (sbn?.packageName != "com.google.android.apps.maps" || !sbn.isOngoing) return
         val extras = sbn.notification.extras
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
@@ -359,9 +361,10 @@ class MediaListenerService : NotificationListenerService() {
         navigation.value = NavigationInfo(title, text, SystemClock.elapsedRealtime())
     }
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
+        sbn?.let { ProjectionMedia.remove(it.key) }
         if (sbn?.packageName == "com.google.android.apps.maps") navigation.value = NavigationInfo()
     }
-    override fun onListenerDisconnected() { navigation.value = NavigationInfo() }
+    override fun onListenerDisconnected() { navigation.value = NavigationInfo(); ProjectionMedia.clear() }
 }
 
 data class MediaInfo(
@@ -376,7 +379,8 @@ data class MediaInfo(
     val speed: Float = 1f,
     val hasSession: Boolean = false,
     val hasAccess: Boolean = false,
-    val appPackage: String? = null
+    val appPackage: String? = null,
+    val canControl: Boolean = hasSession
 ) {
     fun livePosition(now: Long = SystemClock.elapsedRealtime()): Long {
         if (!isPlaying) return positionMs
@@ -420,19 +424,12 @@ class MediaSource(private val context: Context) {
     private var listening = false
     private val handler = Handler(Looper.getMainLooper())
     private val clearMissingSession = Runnable { if (controller == null) publish() }
-
-    private val callback = object : MediaController.Callback() {
-        override fun onMetadataChanged(metadata: MediaMetadata?) = publish()
-        override fun onPlaybackStateChanged(state: PlaybackState?) = publish()
-        override fun onSessionDestroyed() {
-            val remaining = runCatching { sessions?.getActiveSessions(component) }.getOrNull()
-                ?.filter { it.sessionToken != controller?.sessionToken }
-            attach(pick(remaining))
-        }
-    }
+    private var activeControllers = emptyList<MediaController>()
+    private val observed = linkedMapOf<android.media.session.MediaSession.Token, Pair<MediaController, MediaController.Callback>>()
+    private val projectionListener: () -> Unit = { handler.post { if (listening) observe(activeControllers) } }
 
     private val sessionsListener = MediaSessionManager.OnActiveSessionsChangedListener { list ->
-        attach(pick(list))
+        observe(list.orEmpty())
     }
 
     fun hasAccess(): Boolean =
@@ -440,16 +437,20 @@ class MediaSource(private val context: Context) {
 
     fun start() {
         if (!hasAccess() || sessions == null) {
+            stop()
             _state.value = MediaInfo(hasAccess = false)
+            MediaReport.detail = "Falta acceso a notificaciones"
             return
         }
         try {
             if (!listening) {
                 sessions.addOnActiveSessionsChangedListener(sessionsListener, component)
                 listening = true
+                ProjectionMedia.listen(projectionListener)
             }
-            attach(pick(sessions.getActiveSessions(component)))
+            observe(sessions.getActiveSessions(component))
         } catch (e: SecurityException) {
+            stop()
             _state.value = MediaInfo(hasAccess = false)
         }
     }
@@ -459,42 +460,91 @@ class MediaSource(private val context: Context) {
         if (listening) runCatching { sessions?.removeOnActiveSessionsChangedListener(sessionsListener) }
         listening = false
         // Keep the last published state during Activity transitions. Reattach on resume.
-        controller?.unregisterCallback(callback)
+        ProjectionMedia.unlisten(projectionListener)
+        observed.values.forEach { (c, callback) -> runCatching { c.unregisterCallback(callback) } }
+        observed.clear()
+        activeControllers = emptyList()
         controller = null
     }
 
     fun playPause() {
+        if (!_state.value.canControl) return
         val c = controller ?: return
         if (c.playbackState?.state == PlaybackState.STATE_PLAYING) c.transportControls.pause()
         else c.transportControls.play()
     }
 
-    fun next() { controller?.transportControls?.skipToNext() }
-    fun previous() { controller?.transportControls?.skipToPrevious() }
+    fun next() { if (_state.value.canControl) controller?.transportControls?.skipToNext() }
+    fun previous() { if (_state.value.canControl) controller?.transportControls?.skipToPrevious() }
 
-    private fun pick(list: List<MediaController>?): MediaController? =
-        list?.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PLAYING }
-            ?: list?.firstOrNull { it.packageName == "com.apple.android.music" }
-            ?: list?.firstOrNull { it.sessionToken == controller?.sessionToken } ?: list?.firstOrNull()
+    private fun pick(list: List<MediaController>?): MediaController? = list?.maxByOrNull {
+        mediaSessionPriority(it.packageName, it.playbackState?.state == PlaybackState.STATE_PLAYING,
+            !it.metadata?.getString(MediaMetadata.METADATA_KEY_TITLE).isNullOrBlank(), it.sessionToken == controller?.sessionToken)
+    }
+
+    private fun observe(list: List<MediaController>) {
+        activeControllers = list
+        val notificationControllers = ProjectionMedia.current().mapNotNull { track ->
+            track.token?.let { token -> runCatching { MediaController(context, token) }.getOrNull() }
+        }.filter { it.packageName == TLINK_PACKAGE }
+        val all = (list + notificationControllers).distinctBy { it.sessionToken }
+        val tokens = all.map { it.sessionToken }.toSet()
+        observed.keys.filter { it !in tokens }.forEach { token ->
+            observed.remove(token)?.let { (c, callback) -> runCatching { c.unregisterCallback(callback) } }
+        }
+        all.forEach { c -> if (c.sessionToken !in observed) {
+            val callback = object : MediaController.Callback() {
+                override fun onMetadataChanged(metadata: MediaMetadata?) {
+                    if (listening && observed[c.sessionToken]?.second === this) attach(pick(observed.values.map { it.first }))
+                }
+                override fun onPlaybackStateChanged(state: PlaybackState?) {
+                    if (listening && observed[c.sessionToken]?.second === this) attach(pick(observed.values.map { it.first }))
+                }
+                override fun onSessionDestroyed() {
+                    if (!listening || observed[c.sessionToken]?.second !== this) return
+                    observed.remove(c.sessionToken)?.let { (old, cb) -> runCatching { old.unregisterCallback(cb) } }
+                    activeControllers = activeControllers.filter { it.sessionToken != c.sessionToken }
+                    ProjectionMedia.current().filter { it.token == c.sessionToken }.forEach { ProjectionMedia.remove(it.key) }
+                    attach(pick(observed.values.map { it.first }))
+                }
+            }
+            c.registerCallback(callback, handler)
+            observed[c.sessionToken] = c to callback
+        } }
+        attach(pick(all))
+    }
 
     private fun attach(c: MediaController?) {
         handler.removeCallbacks(clearMissingSession)
-        controller?.unregisterCallback(callback)
         controller = c
-        c?.registerCallback(callback, handler)
         // Android can briefly return an empty session list while reconnecting after resume.
-        if (c == null && _state.value.hasSession) handler.postDelayed(clearMissingSession, 2000L)
+        if (c == null && _state.value.hasSession && ProjectionMedia.current().isEmpty()) handler.postDelayed(clearMissingSession, 2000L)
         else publish()
     }
 
     private fun publish() {
         val c = controller
+        val notification = ProjectionMedia.current().lastOrNull { it.media.title.isNotBlank() }?.media
+        val hasPermission = hasAccess()
+        MediaReport.detail = "acceso=$hasPermission; sesiones=" + observed.values.joinToString { (session, _) ->
+            "${session.packageName}(estado=${session.playbackState?.state},título=${!session.metadata?.getString(MediaMetadata.METADATA_KEY_TITLE).isNullOrBlank()})"
+        } + "; notificación CarPlay=${notification != null}"
+        if (!hasPermission) { _state.value = MediaInfo(hasAccess = false); return }
+        if (notification != null && (c == null || (c.packageName != TLINK_PACKAGE && c.playbackState?.state != PlaybackState.STATE_PLAYING))) {
+            _state.value = notification
+            return
+        }
         if (c == null) {
             _state.value = MediaInfo(hasAccess = hasAccess())
             return
         }
         val m = c.metadata
         val ps = c.playbackState
+        val sessionTitle = m?.getString(MediaMetadata.METADATA_KEY_TITLE).orEmpty()
+            .ifBlank { m?.getString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE).orEmpty() }
+        // Never combine the old notification's artist/art with a newer session track.
+        val matchingNotification = notification?.takeIf { c.packageName == TLINK_PACKAGE &&
+            (sessionTitle.isBlank() || it.title == sessionTitle) }
         val raw = m?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
             ?: m?.getBitmap(MediaMetadata.METADATA_KEY_ART)
             ?: m?.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
@@ -505,10 +555,11 @@ class MediaSource(private val context: Context) {
             runCatching { extractVibrantColor(it) }.getOrNull()
         }
         _state.value = MediaInfo(
-            title = m?.getString(MediaMetadata.METADATA_KEY_TITLE).orEmpty(),
+            title = sessionTitle.ifBlank { matchingNotification?.title.orEmpty() },
             artist = (m?.getString(MediaMetadata.METADATA_KEY_ARTIST)
-                ?: m?.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST)).orEmpty(),
-            art = soft?.asImageBitmap(),
+                ?: m?.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST)).orEmpty()
+                .ifBlank { matchingNotification?.artist.orEmpty() },
+            art = soft?.asImageBitmap() ?: matchingNotification?.art,
             dominant = dominant,
             isPlaying = ps?.state == PlaybackState.STATE_PLAYING,
             positionMs = ps?.position ?: 0L,

@@ -38,15 +38,17 @@ Inspección estática local con Androguard 4.1.4: manifiestos, instrucciones DEX
 ### Right view y reversa
 
 - `LRReverseActivity.J` escribe `sys.camera.ch=2` y abre `android.hardware.Camera.open(cameraId)`, con `cameraId` inicialmente 0. Emplea Camera API antigua, parámetros propietarios y TWUtil. Esto no demuestra que Camera2 ID 0 sea la DVR o reversa, ni que GlassCar tenga permiso para seleccionar canales.
-- `TW` referencia explícitamente `com.tw.reverse.ReverseActivity`, `com.tw.reverse.LRReverseActivity` y `com.tw.reverse.RadarService` (por ejemplo, clases `com.tw.service.G` y `com.tw.service.X`). **`com.tw.reverse` no está en el ZIP de 23 APK**. Right view es otro paquete.
-- Para continuar reversa, pedir únicamente el APK original de **Reverse (`com.tw.reverse`)**. No hace falta repetir el ZIP ni extraer paquetes sin relación.
+- `TW` referencia explícitamente `com.tw.reverse.ReverseActivity`, `com.tw.reverse.LRReverseActivity` y `com.tw.reverse.RadarService` (por ejemplo, clases `com.tw.service.G` y `com.tw.service.X`). No estaba en el ZIP inicial de 23 APK; posteriormente se localizó en `apks_topway/com.tw.reverse.apk`. Right view es otro paquete. No volver a pedir el APK.
+- APK inspeccionado: `TS10_eclipse.20230104`, código 42, SHA-256 `dcc46a3cb9844a00d45c8286c0c1d81005acec85e92129f5933aafaa5fdc4df3`. Manifest API 29, UID de sistema, `resizeableActivity=false`, `ReverseActivity` y `LRReverseActivity` singleInstance. ReverseActivity tiene filtro MAIN/DEFAULT sin permiso ni exported=false (exportada en target 29).
+- ReverseActivity abre Camera API antigua tras seleccionar `sys.camera.ch`, y realiza llamadas TWTW al entrar/salir. En onResume escribe 0x10a/0xff y 0x304/1; en onPause cierra cámara y escribe 0x304/0. No es un visor aislado apto para meter en un display secundario sin probar su interacción con la reversa original.
+- TWService abre manualmente ReverseActivity con `iskeypad=1`. El manejador de ReverseActivity conserva la vista manual cuando la señal de reversa está inactiva; al detectar reversa activa limpia ese indicador para volver al ciclo automático original. GlassCar 4.4 ofrece ese Intent explícito desde Cámara, en la pantalla principal y únicamente por toque del usuario. No reproduce escrituras TWTW ni fuerza propiedades/paquetes. Pendiente de prueba física.
 
 ## Siguiente prueba útil
 
 1. Terminar la prueba de audio 4.2 y conservar su reporte por separado.
 2. Instalar la variante Cámaras Diagnóstico. Con la DVR conectada y el equipo estacionado, abrir Configuración → Diagnóstico del estéreo y copiar el reporte completo. No hay que dar permiso USB para listar descriptores.
 3. Revisar VID:PID, clases/subclases/protocolos y endpoints, ABI, Camera2 y metadatos del servicio OEM. Si aparece `1b3f:8301` con almacenamiento 8/6/80, continuar con la ruta propietaria; no añadir una biblioteca UVC a ciegas. Si hay interfaz 14, evaluar UVC por separado y sin confundirla con la entrada analógica.
-4. Obtener `com.tw.reverse` para documentar el camino trasero de forma independiente.
+4. Probar Cámara trasera · original con el vehículo estacionado: apertura manual, regreso a GlassCar y activación automática original al poner/quitar R. El APK de reversa ya fue inspeccionado.
 
 ## Límites y rutas de investigación
 
