@@ -14,6 +14,8 @@ import kotlin.math.roundToInt
 /** Protocol independently identified in the supplied TS10 System UI APK; see docs/TS10-AUDIO.md. */
 internal object TopwayVolumeProtocol {
     const val CHANNEL = 0x203
+    /** 4.6: MCU night/ILL channel; TWService reads arg1 == 1 as nightMode (TW.apk, class x, what 516). */
+    const val LIGHT_CHANNEL = 0x204
     const val QUERY = 0xff
     const val SET_LEVEL = 1
     const val FRESH_MS = 5_000L
@@ -38,7 +40,8 @@ internal data class TopwayAudioState(
     val pendingLevel: Int? = null,
     val writeBlocked: Boolean = false,
     val lastWriteResult: Int? = null,
-    val confirmedLevel: Int? = null
+    val confirmedLevel: Int? = null,
+    val nightLights: Boolean? = null
 ) {
     fun usable(now: Long) = volume != null && !writeBlocked &&
         now - receivedAt in 0..TopwayVolumeProtocol.FRESH_MS
@@ -50,6 +53,7 @@ internal interface TopwayAudioTransport {
     fun start()
     fun query(): Int
     fun setLevel(level: Int): Int
+    fun queryLights(): Int = 0
     fun close()
 }
 
@@ -85,6 +89,8 @@ internal class TopwayAudioController(
             tw.addHandler(Handler(Looper.getMainLooper()) { message ->
                 if (session == generation && transport != null && message.what == TopwayVolumeProtocol.CHANNEL) {
                     receive(message.arg1, message.arg2)
+                } else if (session == generation && transport != null && message.what == TopwayVolumeProtocol.LIGHT_CHANNEL) {
+                    state = state.copy(nightLights = TopwayMapping.flag(message.arg1))
                 }
                 true
             })
@@ -95,6 +101,7 @@ internal class TopwayAudioController(
                     if (generation != session || transport == null) return
                     try {
                         val code = tw.query()
+                        runCatching { tw.queryLights() }
                         if (code < 0) { fail("TW rechazó la consulta: $code"); return }
                         if (state.volume != null && !state.usable(clock()) && !state.writeBlocked) {
                             state = state.copy(volume = null, status = "Sin lectura reciente del estéreo")
@@ -193,13 +200,15 @@ internal class ReflectiveTopwayAudioTransport : TopwayAudioTransport {
     private var listening = false
     private var started = false
     override fun open(): Int {
-        val result = (openMethod.invoke(instance, shortArrayOf(TopwayVolumeProtocol.CHANNEL.toShort())) as Number).toInt()
+        val result = (openMethod.invoke(instance, shortArrayOf(TopwayVolumeProtocol.CHANNEL.toShort(),
+            TopwayVolumeProtocol.LIGHT_CHANNEL.toShort())) as Number).toInt()
         opened = result == 0
         return result
     }
     override fun addHandler(handler: Handler) { addMethod.invoke(instance, tag, handler); listening = true }
     override fun start() { startMethod.invoke(instance); started = true }
     override fun query() = (queryMethod.invoke(instance, TopwayVolumeProtocol.CHANNEL, TopwayVolumeProtocol.QUERY) as Number).toInt()
+    override fun queryLights() = (queryMethod.invoke(instance, TopwayVolumeProtocol.LIGHT_CHANNEL, TopwayVolumeProtocol.QUERY) as Number).toInt()
     override fun setLevel(level: Int) = (levelMethod.invoke(instance, TopwayVolumeProtocol.CHANNEL,
         TopwayVolumeProtocol.SET_LEVEL, level, null) as Number).toInt()
     override fun close() {
@@ -227,6 +236,7 @@ internal object TopwayAudio {
         return "TW audio: ${s.status}\n" +
             "TW nivel: ${v?.level ?: "sin lectura"}/${v?.maximum ?: "?"} · silencio: ${v?.muted ?: "?"}\n" +
             "TW lecturas: ${s.readings} · vigente: ${s.usable(SystemClock.elapsedRealtime())}\n" +
+            "TW luces (MCU 0x204): ${s.nightLights?.let { if (it) "encendidas/noche" else "apagadas/día" } ?: "sin lectura"}\n" +
             "TW solicitado: ${s.pendingLevel ?: "—"} · confirmado: ${s.confirmedLevel ?: "—"} · retorno: ${s.lastWriteResult ?: "—"}"
     }
 }

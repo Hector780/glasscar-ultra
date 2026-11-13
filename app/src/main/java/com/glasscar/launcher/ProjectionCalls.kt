@@ -38,3 +38,7 @@ internal object ProjectionCalls {
 }
 
 internal fun routesToCarPlay(packageName: String, embedding: Boolean) = embedding && packageName == TLINK_PACKAGE
+
+/** 4.6: in the embedding build CarPlay has no separate entry point (drawer, dock or recents). */
+internal fun drawerApps(apps: List<AppEntry>, embedding: Boolean): List<AppEntry> =
+    if (embedding) apps.filterNot { it.packageName == TLINK_PACKAGE } else apps

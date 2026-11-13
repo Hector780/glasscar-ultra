@@ -111,6 +111,21 @@ class TopwayAudioTest {
         assertNull(c.state.volume)
         fake.emit(6, 30); assertEquals(6, c.state.volume!!.level); c.stop()
     }
+    @Test fun mcuNightChannelIsReadWithoutTouchingVolume() {
+        val fake = Fake(); val c = TopwayAudioController({ fake })
+        try {
+            c.start(true); shadowOf(Looper.getMainLooper()).idle()
+            assertNull(c.state.nightLights)
+            fake.emit(1, 0x0503, TopwayVolumeProtocol.LIGHT_CHANNEL)
+            assertEquals(true, c.state.nightLights); assertNull(c.state.volume)
+            fake.emit(0, 0x0503, TopwayVolumeProtocol.LIGHT_CHANNEL)
+            assertEquals(false, c.state.nightLights)
+            fake.emit(-1, 0, TopwayVolumeProtocol.LIGHT_CHANNEL)
+            assertNull(c.state.nightLights)
+            assertTrue(fake.levels.isEmpty())
+        } finally { c.stop() }
+        assertNull(c.state.nightLights)
+    }
     @Test fun unsupportedDeviceNeverLoadsVendorFramework() {
         val c = TopwayAudioController({ error("must not load TW") })
         c.start(false); assertNull(c.state.volume); assertFalse(c.setFraction(0.5f)); c.stop()

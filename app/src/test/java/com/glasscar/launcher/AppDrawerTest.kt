@@ -21,6 +21,12 @@ class AppDrawerTest {
     private var opened = 0
     private var removed = 0
     private fun show() { compose.setContent { AppDrawer(listOf(app), { removed++ }, { opened++ }) } }
+
+    @Test fun embeddingHidesTlinkFromDrawerAndDockOnly() {
+        val tlink = app.copy(label = "Tlink", packageName = TLINK_PACKAGE)
+        assertEquals(listOf(app), drawerApps(listOf(tlink, app), embedding = true))
+        assertEquals(listOf(tlink, app), drawerApps(listOf(tlink, app), embedding = false))
+    }
     @Test fun tapOpensAndLongPressOnlySelectsUntilTrashIsConfirmed() {
         show()
         compose.onNodeWithContentDescription(app.label).performClick()

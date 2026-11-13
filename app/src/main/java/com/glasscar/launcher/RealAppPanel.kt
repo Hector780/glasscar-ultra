@@ -132,6 +132,7 @@ internal class RealAppController(private val context: Context, private val targe
     private var active = false
     private var restartAfterClose = false
     private var connectTimeout: Runnable? = null
+    private var watchdog: Runnable? = null
     private val lifetime = Binder()
     // A new launcher instance must not reuse a service whose previous host is still closing.
     private val serviceTag = "glasscar-embed-$target-${java.util.UUID.randomUUID()}"
@@ -161,7 +162,7 @@ internal class RealAppController(private val context: Context, private val targe
         if (disposed || active == value) return
         active = value
         // Retain the guest task across tab changes and temporary window focus loss.
-        if (value) start()
+        if (value) { start(); if (ready) scheduleWatchdog() } else cancelWatchdog()
     }
 
     fun attach(texture: TextureView) {
@@ -246,7 +247,7 @@ internal class RealAppController(private val context: Context, private val targe
                             if (!disposed && token == generation) {
                                 ready = result.startsWith("OK:")
                                 tell(result, retry = !ready)
-                                if (!ready) stop(result)
+                                if (!ready) stop(result) else scheduleWatchdog()
                             }
                         }
                     }
@@ -285,12 +286,27 @@ internal class RealAppController(private val context: Context, private val targe
             val message = runCatching { service.status(d.display.displayId) }.getOrDefault("No se pudo consultar la sesión")
             main.post { if (!disposed && token == generation) {
                 if (message.startsWith("ERROR")) stop(message) else tell(message)
+                if (active && ready) scheduleWatchdog()
             } }
         }
     }
 
+    /** 4.6: every 2.5 s the Shizuku service pulls the guest back if it left the panel (calls, DVR hand-off). */
+    private fun scheduleWatchdog() {
+        cancelWatchdog()
+        watchdog = object : Runnable {
+            override fun run() {
+                if (disposed || !active || !ready || display == null) return
+                refreshStatus()
+                // The completion schedules the next check. Slow Binder calls cannot pile up.
+            }
+        }.also { main.postDelayed(it, WATCHDOG_MS) }
+    }
+    private fun cancelWatchdog() { watchdog?.let(main::removeCallbacks); watchdog = null }
+
     fun stop(message: String = "Conectando…") {
         if (disposed) return
+        cancelWatchdog()
         if (closing) { tell(message); return }
         connectTimeout?.let(main::removeCallbacks); connectTimeout = null
         generation++; ready = false
@@ -347,5 +363,6 @@ internal class RealAppController(private val context: Context, private val targe
         return false
     }
     override fun onSurfaceTextureUpdated(surface: SurfaceTexture) = Unit
+    private companion object { const val WATCHDOG_MS = 2_500L }
 }
 

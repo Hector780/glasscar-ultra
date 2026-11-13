@@ -11,6 +11,13 @@ import org.robolectric.annotation.Config
 @Config(sdk = [29])
 class EmbeddingPolicyTest {
     private val maps = "com.google.android.apps.maps"
+    @Test fun recoveryRejectsUnknownOrMixedStacks() {
+        assertTrue(EmbeddingPolicy.ownsStack(maps, maps, listOf("$maps/.MapsActivity")))
+        assertFalse(EmbeddingPolicy.ownsStack(maps, maps, emptyList()))
+        assertFalse(EmbeddingPolicy.ownsStack(maps, maps, listOf("$maps/.MapsActivity", "com.other/.Activity")))
+        assertFalse(EmbeddingPolicy.ownsStack(maps, "com.other", listOf("$maps/.MapsActivity")))
+        assertFalse(EmbeddingPolicy.ownsStack("com.other", "com.other", listOf("com.other/.Activity")))
+    }
     @Test fun serviceRejectsPrimaryDisplayWithoutLaunchingAnything() {
         val service = EmbeddedAppService()
         assertTrue(service.startApp(0, maps, android.os.Binder()).startsWith("ERROR:"))
@@ -45,6 +52,15 @@ class EmbeddingPolicyTest {
         assertTrue(EmbeddingPolicy.allowsDisplay(9, 10001, 10001, EmbeddingPolicy.displayName(10001, dvr), dvr))
         assertFalse(EmbeddingPolicy.allowsDisplay(0, 10001, 10001, EmbeddingPolicy.displayName(10001, dvr), dvr))
         assertFalse(command.any { it.contains("MainActivity") || it.contains("XUFSCameraService") })
+    }
+    @Test fun stackMoveOnlyTargetsPanelsAndDvrWaitsForItsSplash() {
+        assertEquals(listOf("/system/bin/am", "display", "move-stack", "7", "12"), EmbeddingPolicy.moveStackCommand(7, 12))
+        assertThrows(IllegalArgumentException::class.java) { EmbeddingPolicy.moveStackCommand(7, 0) }
+        assertThrows(IllegalArgumentException::class.java) { EmbeddingPolicy.moveStackCommand(-1, 12) }
+        assertEquals(4_500L, EmbeddingPolicy.settleMillis("com.williexing.android.apps.xcdvr1"))
+        assertEquals(0L, EmbeddingPolicy.settleMillis("com.zjinnova.zlink"))
+        assertTrue((0x1b3f to 0x8301) in EmbeddingPolicy.usbDevices.getValue("com.williexing.android.apps.xcdvr1"))
+        assertNull(EmbeddingPolicy.usbDevices["com.zjinnova.zlink"])
     }
     @Test fun invalidTouchDoesNotReachGuestInput() {
         for ((action, x, expected) in listOf(Triple(MotionEvent.ACTION_DOWN, 12f, true),

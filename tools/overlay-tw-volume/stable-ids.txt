@@ -1,0 +1,4 @@
+com.glasscar.overlay.twvolume:id/level = 0x7f06005a
+com.glasscar.overlay.twvolume:id/message = 0x7f06005e
+com.glasscar.overlay.twvolume:id/other_stream_icon = 0x7f060064
+com.glasscar.overlay.twvolume:layout/volume_adjust = 0x7f080014

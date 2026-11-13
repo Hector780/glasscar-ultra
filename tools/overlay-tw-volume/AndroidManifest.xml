@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Overlay de recursos (RRO) para com.tw.service 20210731: vacía el popup de volumen (layout/volume_adjust).
+     No contiene código. Se desactiva con: cmd overlay disable com.glasscar.overlay.twvolume -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.glasscar.overlay.twvolume" android:versionCode="1" android:versionName="1.0">
+    <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="29" />
+    <overlay android:targetPackage="com.tw.service" android:priority="50" />
+    <application android:label="GlassCar sin popup de volumen TW" android:hasCode="false" />
+</manifest>

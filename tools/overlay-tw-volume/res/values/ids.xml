@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item type="id" name="other_stream_icon" />
+    <item type="id" name="level" />
+    <item type="id" name="message" />
+</resources>

@@ -69,3 +69,44 @@ Desensamblador disponible: jars smali-baksmali/smali-dexlib2/smali-util, guava, 
 ### Entrega y publicación
 
 Rama `work/topway-carinfo`, HEAD inicial c099093cc70f72764c8260dae2706c9a0b3fda3a. Identificar el commit actual con git log; no tocar main. Entrega prevista en `../INSTALAR_DESPUES/`: APK 4.5 con hash abreviado en el nombre y `LEEME-4.5.txt` con commit completo, URL y resultado de Actions, firma y SHA-256. El LEEME se completa tras recibir CI, sin modificar el código compilado. Si falta, terminar publicación/espera/descarga/verificación antes de entregar.
+
+
+## 4.6 (13 nov 2026, Claude/Cowork) — sin commit todavía
+
+Cambios en el código (sin probar en el estéreo; compilar con `tools/Compilar-4.6.ps1`):
+- LauncherScreen: en embedding las 4 páginas quedan compuestas siempre (`beyondBoundsPageCount = 3`, sin `settledPage`) y el cajón se dibuja ENCIMA del pager. Maps/Tlink/DVR ya no pierden su TextureView al cambiar de pestaña o abrir el cajón, y arrancan los tres al iniciar el launcher.
+- Tlink oculto del cajón, dock y recientes (`drawerApps`); abrirlo desde cualquier lado lleva a la pestaña CarPlay.
+- EmbeddedAppService: (a) DVR: concede permiso USB y fija HD Car DVR como app predeterminada para 1b3f:8301 y 1908:2311 vía IUsbManager (shell). Hipótesis: el "pide abrir la app" es el diálogo de Android "¿Abrir HD Car DVR para controlar…?" que dispara `SystemReceiverActivity` (USB_DEVICE_ATTACHED). Esa actividad es translúcida, llama `XCDVR1Service.p()` y termina: como predeterminada arranca la grabación sin UI. (b) `am display move-stack` regresa al panel cualquier tarea del paquete que quede en display 0 (hand-off Splash→MainActivityEx singleInstance del DVR, pantallas de llamada de Tlink). (c) espera 4.5 s para el Splash del DVR. (d) `status()` se auto-repara (mueve o relanza) y RealAppController lo consulta cada 2.5 s.
+- TopwayAudio abre también el canal MCU 0x204: `arg1 == 1` = noche/luces (igual que TWService clase x). Respaldo de `can.lightsOn` cuando CarInfoService no reporta ILL. Diagnóstico muestra "TW luces (MCU 0x204)".
+- Pruebas nuevas: TopwayAudioTest (canal 0x204), EmbeddingPolicyTest (move-stack/USB/settle), AppDrawerTest (`drawerApps`).
+
+Popup de volumen (hallazgo confirmado en TW.apk 20210731):
+- NO es SystemUI: es `com.tw.service.fa`, layout `volume_adjust` (0x7f080014), ventana TYPE_SYSTEM_ALERT de 2.5 s. `x.handleMessage` (canal 515) lo muestra siempre que el MCU no marque el bit alto de arg2; no hay Setting que lo apague. com.tw.service es `android.uid.system` → appops no aplica.
+- Solución opcional: `tools/overlay-tw-volume/` (RRO sin código) reemplaza `volume_adjust` por una raíz GONE de 0 dp conservando IDs 0x7f06005a/5e/64 (stable-ids; el build aborta si no coinciden). Instalar con `instalar_overlay_tw.sh` (Termux + su): intenta overlay en /data, si Android lo rechaza crea módulo Magisk en /vendor/overlay con auto-reversión si TWService no queda estable. Revertir: `quitar_overlay_tw.sh`.
+- El botón flotante EasyTouch de SystemUI se apaga con su mosaico nativo (SuspensionTile), sin código.
+
+Pendiente / no verificado:
+1. Compilar y correr pruebas (no hubo SDK Android disponible para Claude). 2. Confirmar en el estéreo que shell tiene MANAGE_USB e INTERNAL_SYSTEM_WINDOW (si no, el diagnóstico muestra "USB: SecurityException" o no mueve tareas; con Shizuku por root sí). 3. Popup/ringtone de llamada: dueño sin identificar (Tlink5 viene empaquetado/cifrado; dex de 70 KB). Capturar con `tools/Capturar-TS10.ps1 -Event Call`. Si es el marcador Bluetooth de TW, la causa es HFP del iPhone conectado al estéreo además de CarPlay. 4. CAN: velocidad/marcha siguen dependiendo de CarInfoService; `revserse_status` (Settings.System) solo se escribe en 1, no se usó como fuente. 5. DVR sin app (protocolo USB propietario por JNI) sigue fuera de alcance; la app se conserva.
+
+Hallazgo llamadas (13 nov, tarde): TWService (clase x, X.txt ~3680) abre `com.tw.bt/com.tw.bt.ATBluetoothActivity` en la pantalla principal ante eventos de teléfono del módulo Bluetooth propio del estéreo (ATBluetoothService, comandos AT, no la pila Bluetooth de Android). Usuario: el iPhone se empareja por BT para iniciar CarPlay inalámbrico y luego debería quedar solo por WiFi, pero "a veces" queda conectado por ambos. Hipótesis principal: en esos casos la llamada entra también por el BT del estéreo → popup + ringtone de com.tw.bt. Arreglo de raíz: desactivar conexión automática del BT del estéreo. Confirmar con Capturar-TS10.ps1 -Event Call (debe aparecer com.tw.bt).
+
+Resultado en el estéreo (13 nov 17:08): `pm install` del overlay en /data FALLA en Android 10 ("Overlay ... and target com.tw.service signed with different certificates, and the overlay lacks <overlay android:targetName>"). Como módulo Magisk `/data/adb/modules/glasscar_ts10` (system/vendor/overlay) SÍ carga: `cmd overlay list com.tw.service` → `[x] com.glasscar.overlay.twvolume`, sin archivo `disable` (TWService estable). Instalado con `INSTALAR_DESPUES/glasscar-termux-4.6.txt` (incluye vigilante de llamadas com.tw.bt).
+
+Diagnóstico overlay (13 nov 17:20): idmap correcto (layout/volume_adjust y los 3 id mapeados 1:1, target /system/priv-app/com.tw.service_a5a4) y `overlay paths` presente, pero la ventana seguía midiendo 1082x237 (diseño original). Causa: `am force-stop` NO mata procesos persistentes en Android 10, así que TWService nunca se reinició con el overlay. Se reemplazó por `kill -9 $(pidof com.tw.service)` en instalador, service.sh y scripts.
+
+CONFIRMADO por el usuario (13 nov): tras `kill -9` de com.tw.service el popup de volumen de TW ya no aparece. Overlay + módulo Magisk `glasscar_ts10` funcionando. Pendiente: verificar vigilante de llamadas (llamadas.log) en una llamada real de CarPlay y las pruebas del launcher 4.6 (pestañas sin reinicio, USB DVR, luces MCU).
+
+
+## Continuación Codex: revisión 4.6 y entrega (13 noviembre)
+
+Prioridad de lectura: `docs/VERIFICACION-4.6.md` refleja la revisión posterior al prompt de Claude. El usuario enviará los videos en OTRO chat de ChatGPT Work desde su celular; no esperar ni inventar una revisión audiovisual aquí. Dejar este contexto publicado en GitHub.
+
+- SDK/JDK/Gradle locales SÍ están disponibles. La 4.6 inicial compiló. Se hicieron correcciones puntuales a watchdog/recuperación/diagnóstico USB, reflexión de IPackageManager y lecturas inválidas de luces; detalle y tests en VERIFICACION-4.6.md.
+- ERROR DE ENTREGA 4.5: el archivo llamado GlassCar-Ultra-4.5-0069aa5-embedding.apk era realmente `.cameradiag`, code9; SHA146c46b1... El LEEME anterior incluso apuntaba a cameradiag/app-cameradiag.apk y contenía un fallo de JAVA_HOME en la verificación de firma. No asumir que el usuario probó embedding. La variante correcta del ZIP es embedding/app-embedding.apk; ambas variantes CI4.5 usan certificado b0a3b465...; el APK local usa 6a2cb576... Comparación completa en VERIFICACION-4.6.md.
+- Para interpretar diagnóstico 4.6: `inicios=1` sólo cuenta controladores/displays; el watchdog puede relanzar. Revisar también `iniciosApp` y `movimientos`. La concesión USB y la elección predeterminada se informan por separado. No afirmar permiso/default/video por el nombre de un archivo.
+- Overlay TW confirmado: se conservó intacto. Compilar-4.6 ya NO lo reconstruye por defecto. Scripts standalone usan glasscar_twvolume; el módulo instalado se llama glasscar_ts10. No confundirlos ni ejecutar su desinstalador como parte de actualizar el launcher.
+- No se instaló ningún APK en el estéreo ni se ejecutaron comandos de Termux/root. La supresión de llamadas duplicadas y la continuidad de DVR/CAN requieren prueba física.
+- Entrega final: completar abajo commit, run CI, resultados y certificados después de verificar. Usar paquetes/local/CI explícitos en INSTALAR_DESPUES y mantener fuentes publicadas en work/topway-carinfo, sin tocar main.
+
+
+Validación local final de esta revisión: `tools/Compilar-4.6.ps1` → BUILD SUCCESSFUL; 95 pruebas, 0 fallos/errores/omitidas; lint 0 errores, 80 advertencias, 1 información. APK local code10 firmado y verificado; SHA-256 `e38aafb52172830fb1aee830928bb211eb002d67db8fbf62d63f941dbc30a17f`. El bloque de CI se añadirá al terminar la publicación.

@@ -130,7 +130,8 @@ class MainActivity : ComponentActivity(), LauncherActions {
 
     override fun open(app: AppEntry) {
         if (routesToCarPlay(app.packageName, BuildConfig.REAL_APP_EMBEDDING)) {
-            showDrawer.value = false; carPlayRequest.intValue++; preferences.record(app); return
+            // Tlink lives only inside the CarPlay tab: do not add it to recents/dock.
+            showDrawer.value = false; carPlayRequest.intValue++; return
         }
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
             .setClassName(app.packageName, app.activityName)

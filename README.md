@@ -1,4 +1,10 @@
-# GlassCar Ultra 4.5 · integración persistente TS10
+# GlassCar Ultra 4.6 · TS10
+
+Entrega de prueba: paquete `com.glasscar.launcher.embedtest`, code 10. [Revisión 4.6, firmas y checklist para videos](docs/VERIFICACION-4.6.md). [Continuidad completa](docs/CONTINUAR-CODEX.md).
+
+El popup TW ya fue eliminado mediante el módulo Magisk, según confirmación del usuario; no requiere rehacerlo al actualizar el launcher. Persistencia de apps, USB DVR, llamadas y CAN siguen sujetos a validación física. Atención: la entrega anterior con nombre «4.5 embedding» contenía una variante cameradiag; verificar el paquete interno.
+
+## Historial 4.5 · integración persistente TS10
 
 Variante de prueba `embedding`, paquete `com.glasscar.launcher.embedtest`, versión `4.5-ts10-integrated-real-app-prototype` / code 9. Requiere Android 10/API29 y Shizuku activo/autorizado.
 

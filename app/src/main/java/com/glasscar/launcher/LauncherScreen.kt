@@ -303,6 +303,11 @@ private fun LauncherContent(
     LaunchedEffect(can.lightsOn) {
         can.lightsOn?.let { prefs.setNight(it) }
     }
+    // 4.6: if CarInfoService never reports ILL, follow the MCU's own night signal (channel 0x204).
+    val mcuNight = TopwayAudio.controller.state.nightLights
+    LaunchedEffect(mcuNight, can.lightsOn == null) {
+        if (can.lightsOn == null) mcuNight?.let { prefs.setNight(it) }
+    }
 
     val palette = animatedPalette(night)
     var rootSize by remember { mutableStateOf(Size.Zero) }
@@ -328,25 +333,33 @@ private fun LauncherContent(
                 }
             }) {
             Row(Modifier.fillMaxSize().padding(if (immersive) 0.dp else 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (!immersive) SpatialDock(status, drive.hasFix, apps, config, actions, onToggleDrawer, configure,
+                if (!immersive) SpatialDock(status, drive.hasFix, drawerApps(apps, BuildConfig.REAL_APP_EMBEDDING), config, actions, onToggleDrawer, configure,
                     Modifier.width(92.dp).fillMaxHeight())
                 Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(if (immersive) 2.dp else 10.dp)) {
                     if (!immersive) LauncherTabs(pager.currentPage, showDrawer) { index ->
                         onCloseDrawer(); mapExpanded = false; scope.launch { pager.scrollToPage(index) }
                     }
                     Box(Modifier.weight(1f).fillMaxWidth()) {
-                        if (showDrawer) AppDrawer(apps, actions::uninstall) { actions.open(it); onCloseDrawer() }
-                        else HorizontalPager(pager, Modifier.fillMaxSize(), beyondBoundsPageCount = 0,
+                        // 4.6: with real apps embedded, every page stays composed so Maps, Tlink and DVR
+                        // never lose their TextureView. The drawer is drawn on top instead of replacing the pager.
+                        val keepAlive = BuildConfig.REAL_APP_EMBEDDING
+                        if (keepAlive || !showDrawer) HorizontalPager(pager, Modifier.fillMaxSize(),
+                            beyondBoundsPageCount = if (keepAlive) 3 else 0,
                             userScrollEnabled = !BuildConfig.REAL_APP_EMBEDDING) { page ->
                             when (page) {
-                                0 -> if (pager.settledPage == 0) Dashboard(drive, speed, gear, manualGear != null, { manualGear = it }, { manualGear = null },
+                                0 -> if (keepAlive || pager.settledPage == 0) Dashboard(drive, speed, gear, manualGear != null, { manualGear = it }, { manualGear = null },
                                     media, weather, apps, status, actions, config, configure, can, permissionVersion,
                                     mapExpanded, { mapExpanded = !mapExpanded }, { scope.launch { pager.scrollToPage(1) } })
-                                1 -> if (pager.settledPage == 1) CarPlayPanel(config, apps, actions, configure, Modifier.fillMaxSize())
-                                2 -> if (pager.settledPage == 2) CameraPanel(config, apps, actions, configure, permissionVersion, Modifier.fillMaxSize())
+                                1 -> if (keepAlive || pager.settledPage == 1) CarPlayPanel(config, apps, actions, configure, Modifier.fillMaxSize())
+                                2 -> if (keepAlive || pager.settledPage == 2) CameraPanel(config, apps, actions, configure, permissionVersion, Modifier.fillMaxSize())
                                 3 -> ClusterCard(drive, speed, gear, manualGear != null, { manualGear = it }, { manualGear = null },
                                     apps, actions, Modifier.fillMaxSize())
                             }
+                        }
+                        if (showDrawer) Box(Modifier.fillMaxSize()
+                            .background(LocalBackdrop.current.palette.abyss, RoundedCornerShape(32.dp))
+                            .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }) {
+                            AppDrawer(drawerApps(apps, BuildConfig.REAL_APP_EMBEDDING), actions::uninstall) { actions.open(it); onCloseDrawer() }
                         }
                     }
                     if (!immersive) QuickControlBar(status, night, { prefs.setNight(!night) }, actions,
