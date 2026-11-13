@@ -30,6 +30,8 @@
         <package android:name="com.tw.rightview" />
         <package android:name="com.sprd.cameraipcontrol" />
         <package android:name="com.tw.service" />
+        <!-- Servicio nativo de datos del vehículo (TopwayCarInfo) -->
+        <package android:name="com.tw.carinfoservice" />
         <package android:name="com.dofun.carsetting" />
         <intent>
             <action android:name="android.intent.action.MAIN" />

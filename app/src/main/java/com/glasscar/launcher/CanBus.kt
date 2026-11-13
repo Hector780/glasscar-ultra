@@ -86,19 +86,16 @@ class CanBusSource(private val context: Context) {
             val gear = parseGear(extras)
             val lights = parseBoolean(extras, CanConfig.ILL_KEYS)
             val voltage = parseVoltage(extras)
-            if (speed == null && gear == null && lights == null && voltage == null) return
-            val previous = _state.value
-            _state.value = CanState(
-                speedKmh = speed ?: previous.speedKmh.takeIf { previous.isFresh() },
-                gear = gear ?: previous.gear.takeIf { previous.isFresh() },
-                lightsOn = lights ?: previous.lightsOn,
-                updatedAt = SystemClock.elapsedRealtime(),
-                voltageV = voltage ?: previous.voltageV,
-                voltageAt = if (voltage != null) SystemClock.elapsedRealtime() else previous.voltageAt,
-                speedAt = if (speed != null) SystemClock.elapsedRealtime() else previous.speedAt,
-                gearAt = if (gear != null) SystemClock.elapsedRealtime() else previous.gearAt
-            )
+            merge(speed, gear, lights, voltage)
         }
+    }
+
+    /** Servicio nativo Topway (AIDL). Fuente principal en TS10; los broadcasts quedan como respaldo. */
+    private val topway = TopwayCarInfo(context) { r -> merge(r.speedKmh, r.gear, r.lightsOn, r.voltageV) }
+
+    @Synchronized
+    private fun merge(speed: Float?, gear: Gear?, lights: Boolean?, voltage: Float?) {
+        _state.value = mergeCan(_state.value, speed, gear, lights, voltage, SystemClock.elapsedRealtime())
     }
 
     fun start() {
@@ -106,12 +103,14 @@ class CanBusSource(private val context: Context) {
         val filter = IntentFilter(CanConfig.GLASSCAR_ACTION)
         CanConfig.EXTRA_ACTIONS.forEach { filter.addAction(it) }
         ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_EXPORTED)
+        topway.start()
         registered = true
     }
 
     fun stop() {
         if (!registered) return
         runCatching { context.unregisterReceiver(receiver) }
+        topway.stop()
         registered = false
     }
 
@@ -166,6 +165,21 @@ class CanBusSource(private val context: Context) {
     @Suppress("DEPRECATION")
     private fun describe(extras: Bundle?): String =
         extras?.keySet()?.joinToString(prefix = "{", postfix = "}") { "$it=${extras.get(it)}" } ?: "{}"
+}
+
+/** Combina una lectura parcial con el estado anterior. Pura para poder probarla. */
+internal fun mergeCan(previous: CanState, speed: Float?, gear: Gear?, lights: Boolean?, voltage: Float?, now: Long): CanState {
+    if (speed == null && gear == null && lights == null && voltage == null) return previous
+    return CanState(
+        speedKmh = speed ?: previous.speedKmh.takeIf { previous.speedIsFresh(now) },
+        gear = gear ?: previous.gear.takeIf { previous.gearIsFresh(now) },
+        lightsOn = lights ?: previous.lightsOn,
+        updatedAt = now,
+        voltageV = voltage ?: previous.voltageV,
+        voltageAt = if (voltage != null) now else previous.voltageAt,
+        speedAt = if (speed != null) now else previous.speedAt,
+        gearAt = if (gear != null) now else previous.gearAt
+    )
 }
 
 // =====================================================================
