@@ -3,11 +3,16 @@ package com.glasscar.launcher
 import android.Manifest
 import android.appwidget.AppWidgetHost
 import android.content.Intent
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.WindowManager
+import android.view.KeyEvent
+import android.media.AudioManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -15,6 +20,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.view.WindowCompat
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
@@ -32,7 +38,15 @@ class MainActivity : ComponentActivity(), LauncherActions {
     private val apps = mutableStateOf<List<AppEntry>>(emptyList())
     private val showDrawer = mutableStateOf(false)
     private val permissionVersion = mutableIntStateOf(0)
+    private val carPlayRequest = mutableIntStateOf(0)
+    private val volumeKeyEvent = mutableIntStateOf(0)
     private var askedWriteSettings = false
+    private var projectionReceiverRegistered = false
+    private val projectionReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            ProjectionCalls.vendorStatus(intent.action, intent.getStringExtra("status"))
+        }
+    }
 
     private val permissionRequest = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         permissionVersion.intValue++
@@ -52,19 +66,33 @@ class MainActivity : ComponentActivity(), LauncherActions {
         setContent {
             LauncherRoot(apps.value, location.state, media.state, canBus.state, weather,
                 showDrawer.value, { showDrawer.value = !showDrawer.value }, { showDrawer.value = false }, this,
-                preferences = preferences, permissionVersion = permissionVersion.intValue)
+                preferences = preferences, permissionVersion = permissionVersion.intValue,
+                carPlayRequest = carPlayRequest.intValue, volumeKeyEvent = volumeKeyEvent.intValue)
         }
         permissionRequest.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
     }
 
-    override fun onStart() { super.onStart(); media.start(); runCatching { widgets.host.startListening() } }
-    override fun onStop() { media.stop(); widgets.host.stopListening(); super.onStop() }
+    override fun onStart() {
+        super.onStart()
+        location.start(); media.start(); canBus.start(); TopwayAudio.start(this)
+        if (BuildConfig.REAL_APP_EMBEDDING && !projectionReceiverRegistered) {
+            ContextCompat.registerReceiver(this, projectionReceiver, IntentFilter(TLINK_PACKAGE), ContextCompat.RECEIVER_EXPORTED)
+            projectionReceiverRegistered = true
+        }
+        runCatching { widgets.host.startListening() }
+    }
+    override fun onStop() {
+        location.stop(); media.stop(); canBus.stop(); TopwayAudio.stop()
+        if (projectionReceiverRegistered) { unregisterReceiver(projectionReceiver); projectionReceiverRegistered = false }
+        ProjectionCalls.clearVendor()
+        widgets.host.stopListening(); super.onStop()
+    }
     override fun onSaveInstanceState(outState: Bundle) { widgets.save(outState); super.onSaveInstanceState(outState) }
 
     override fun onResume() {
         super.onResume()
         enterImmersive()
-        location.start(); media.start(); canBus.start(); TopwayAudio.start(this)
+        location.start(); media.start(); canBus.start()
         permissionVersion.intValue++
         lifecycleScope.launch {
             apps.value = withContext(Dispatchers.Default) { AppsRepository.load(this@MainActivity) }
@@ -72,9 +100,26 @@ class MainActivity : ComponentActivity(), LauncherActions {
             if (recents.isNotEmpty()) preferences.recordRecent(recents)
         }
     }
-    override fun onPause() { location.stop(); canBus.stop(); TopwayAudio.stop(); super.onPause() }
     override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus); if (hasFocus) enterImmersive() }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); showDrawer.value = false }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        val direction = when (keyCode) {
+            KeyEvent.KEYCODE_VOLUME_UP -> AudioManager.ADJUST_RAISE
+            KeyEvent.KEYCODE_VOLUME_DOWN -> AudioManager.ADJUST_LOWER
+            else -> return super.onKeyDown(keyCode, event)
+        }
+        volumeKeyEvent.intValue++
+        // On TS10 the MCU owns volume. Do not send a second command for its key event.
+        if (preferences.state.value.nativeAudio) return super.onKeyDown(keyCode, event)
+        getSystemService(AudioManager::class.java)?.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, 0)
+        return true
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        if (!preferences.state.value.nativeAudio && keyCode in listOf(KeyEvent.KEYCODE_VOLUME_UP, KeyEvent.KEYCODE_VOLUME_DOWN)) return true
+        return super.onKeyUp(keyCode, event)
+    }
 
     private fun enterImmersive() {
         WindowCompat.getInsetsController(window, window.decorView).apply {
@@ -84,6 +129,9 @@ class MainActivity : ComponentActivity(), LauncherActions {
     }
 
     override fun open(app: AppEntry) {
+        if (routesToCarPlay(app.packageName, BuildConfig.REAL_APP_EMBEDDING)) {
+            showDrawer.value = false; carPlayRequest.intValue++; preferences.record(app); return
+        }
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
             .setClassName(app.packageName, app.activityName)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
@@ -118,6 +166,9 @@ class MainActivity : ComponentActivity(), LauncherActions {
         }
     }
     override fun openPackage(packageName: String) {
+        if (routesToCarPlay(packageName, BuildConfig.REAL_APP_EMBEDDING)) {
+            showDrawer.value = false; carPlayRequest.intValue++; return
+        }
         apps.value.firstOrNull { it.packageName == packageName }?.let { open(it); return }
         packageManager.getLaunchIntentForPackage(packageName)?.let { safeStart(it, packageName) }
     }
@@ -127,7 +178,7 @@ class MainActivity : ComponentActivity(), LauncherActions {
     }
     override fun setVolume(fraction: Float) {
         if (preferences.state.value.nativeAudio) {
-            if (!TopwayAudio.controller.setFraction(fraction)) toast("Sin confirmación de volumen nativo; usa el panel del estéreo")
+            TopwayAudio.controller.setFraction(fraction)
             return
         }
         runCatching { HeadUnitControls.setAndroidVolume(this, fraction) }

@@ -9,6 +9,8 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.util.Log
+import java.util.concurrent.Executors
+import java.util.concurrent.Executor
 import com.tw.carinfoservice.CarServiceAidl
 import com.tw.carinfoservice.CarServiceCallBack
 
@@ -26,82 +28,119 @@ import com.tw.carinfoservice.CarServiceCallBack
  */
 class TopwayCarInfo(
     private val context: Context,
+    private val worker: Executor = readWorker,
     private val sink: (TopwayReading) -> Unit
 ) {
     private val main = Handler(Looper.getMainLooper())
     private var service: CarServiceAidl? = null
     private var bound = false
     private var wanted = false
+    private var generation = 0
+    private var connection: ServiceConnection? = null
+    private var callback: CarServiceCallBack? = null
+    private var death: Pair<IBinder, IBinder.DeathRecipient>? = null
 
-    private val connection = object : ServiceConnection {
-        override fun onServiceConnected(name: ComponentName, binder: IBinder) {
-            val api = CarServiceAidl.Stub.asInterface(binder)
-            service = api
-            runCatching {
-                binder.linkToDeath({ main.post { reconnect("binderDied") } }, 0)
-                api.registerCarServiceCallBack(callback)
-                api.getData()       // abre el envío de velocidad/rpm/trayectoria
-                api.requestData()   // pide un volcado inicial
-                pollOnce(api)
-            }.onFailure { Log.w(TAG, "registro fallido", it); record("register_failed:${it.javaClass.simpleName}") }
-            record("connected")
-        }
-
-        override fun onServiceDisconnected(name: ComponentName) {
-            service = null
-            record("disconnected")
-            reconnect("disconnected")
+    private fun poll(api: CarServiceAidl, token: Int) {
+        if (!wanted || token != generation || service !== api) return
+        worker.execute {
+            val reading = pollOnce(api)
+            main.post {
+                if (wanted && token == generation && service === api) {
+                    if (!reading.isEmpty()) sink(reading)
+                    if (!api.asBinder().isBinderAlive) reconnect("binder_dead")
+                    else main.postDelayed({ poll(api, token) }, POLL_MS)
+                }
+            }
         }
     }
 
     fun start() {
         wanted = true
         if (bound) return
-        val intent = Intent(ACTION).setPackage(PACKAGE)
-        bound = runCatching { context.bindService(intent, connection, Context.BIND_AUTO_CREATE) }.getOrDefault(false)
+        main.removeCallbacksAndMessages(null)
+        val token = ++generation
+        val conn = object : ServiceConnection {
+            override fun onServiceConnected(name: ComponentName, binder: IBinder) {
+                if (!wanted || token != generation || service != null) return
+                val api = CarServiceAidl.Stub.asInterface(binder)
+                service = api
+                val cb = createCallback(token)
+                callback = cb
+                val recipient = IBinder.DeathRecipient {
+                    main.post { if (wanted && token == generation) reconnect("binderDied") }
+                }
+                runCatching { binder.linkToDeath(recipient, 0); death = binder to recipient }
+                worker.execute {
+                    // A failed optional transaction must not block the available getters.
+                    runCatching { api.registerCarServiceCallBack(cb) }.onFailure { record("register_failed:${it.javaClass.simpleName}") }
+                    runCatching { api.getData() }.onFailure { record("getData_failed:${it.javaClass.simpleName}") }
+                    runCatching { api.requestData() }.onFailure { record("requestData_failed:${it.javaClass.simpleName}") }
+                    main.post { poll(api, token) }
+                }
+                record("connected")
+            }
+            override fun onServiceDisconnected(name: ComponentName) {
+                if (token == generation) reconnect("disconnected")
+            }
+            override fun onBindingDied(name: ComponentName) {
+                if (token == generation) reconnect("binding_died")
+            }
+            override fun onNullBinding(name: ComponentName) {
+                if (token == generation) reconnect("null_binding")
+            }
+        }
+        connection = conn
+        val intent = Intent(ACTION).setComponent(ComponentName(PACKAGE, "$PACKAGE.CarService"))
+        bound = runCatching { context.bindService(intent, conn, Context.BIND_AUTO_CREATE) }.getOrDefault(false)
         record(if (bound) "bind_requested" else "bind_unavailable")
-        if (!bound) runCatching { context.unbindService(connection) }
+        main.postDelayed({
+            if (wanted && token == generation && service == null) reconnect("connect_timeout")
+        }, if (bound) 10_000L else RETRY_MS)
     }
 
     fun stop() {
         wanted = false
+        generation++
         main.removeCallbacksAndMessages(null)
-        // Sin closureData(): cerraría el envío también para las apps nativas.
-        runCatching { service?.unRegisterCarServiceCallBack(callback) }
-        service = null
-        if (bound) runCatching { context.unbindService(connection) }
-        bound = false
+        val old = service
+        val cb = callback
+        if (old != null && cb != null) worker.execute { runCatching { old.unRegisterCarServiceCallBack(cb) } }
+        death?.let { (binder, recipient) -> runCatching { binder.unlinkToDeath(recipient, 0) } }
+        death = null; service = null; callback = null
+        if (bound) connection?.let { runCatching { context.unbindService(it) } }
+        connection = null; bound = false
+        // Do not call closureData(): that would stop delivery to the OEM apps too.
     }
 
     private fun reconnect(reason: String) {
         if (!wanted) return
-        Log.i(TAG, "reconexión: $reason")
-        if (bound) runCatching { context.unbindService(connection) }
-        bound = false
-        main.removeCallbacksAndMessages(null)
+        record(reason)
+        stop()
+        wanted = true
         main.postDelayed({ if (wanted) start() }, RETRY_MS)
     }
 
-    /** Lectura inicial por getters: los callbacks sólo llegan cuando cambia un valor. */
-    private fun pollOnce(api: CarServiceAidl) {
+    /** Lecturas periódicas por getters: los callbacks sólo llegan cuando cambia un valor. */
+    private fun pollOnce(api: CarServiceAidl): TopwayReading {
         val speed = runCatching { api.getInstantaneous_Speed() }.getOrNull()
         val gear = runCatching { api.getGear_Information() }.getOrNull()
         val reverse = runCatching { api.getCarReverse() }.getOrNull()
         val lights = runCatching { api.getHeadlight() }.getOrNull()
         val volts = runCatching { api.getElectricVoltage() }.getOrNull()
+        val originalVolts = runCatching { api.getOriginalCarVoltage() }.getOrNull()
         val reading = TopwayReading(
             speedKmh = speed?.let { TopwayMapping.speedKmh(it.getOrNull(0) ?: -1, it.getOrNull(1) ?: 0) },
             gear = TopwayMapping.gearFromReverse(reverse) ?: gear?.let(TopwayMapping::gear),
             lightsOn = lights?.let(TopwayMapping::flag),
-            voltageV = volts?.let(TopwayMapping::voltage)
+            voltageV = volts?.let(TopwayMapping::voltage) ?: originalVolts?.let(TopwayMapping::voltage)
         )
-        record("poll speed=${speed?.toList()} gear=$gear reverse=$reverse lights=$lights volts=$volts")
-        if (!reading.isEmpty()) sink(reading)
+        record("poll speed=${speed?.toList()} gear=$gear reverse=$reverse lights=$lights volts=$volts originalVolts=$originalVolts")
+        return reading
     }
 
-    private fun emit(reading: TopwayReading, event: String) {
+    private fun emit(token: Int, reading: TopwayReading, event: String) {
         record(event)
-        if (!reading.isEmpty()) sink(reading)
+        main.post { if (wanted && token == generation && !reading.isEmpty()) sink(reading) }
     }
 
     private fun record(event: String) {
@@ -109,20 +148,20 @@ class TopwayCarInfo(
         HardwareDiagnostics.recordCan("topway.carinfo:$event", null)
     }
 
-    private val callback = object : CarServiceCallBack.Stub() {
+    private fun createCallback(token: Int) = object : CarServiceCallBack.Stub() {
         // --- Valores usados ---
         override fun onInstantaneous_Speed(mInstantaneous_Speed: Int) =
-            emit(TopwayReading(speedKmh = TopwayMapping.speedKmh(mInstantaneous_Speed, 0)), "speed=$mInstantaneous_Speed")
+            emit(token, TopwayReading(speedKmh = TopwayMapping.speedKmh(mInstantaneous_Speed, 0)), "speed=$mInstantaneous_Speed")
         override fun onGear_Information(mGear_Information: Int) =
-            emit(TopwayReading(gear = TopwayMapping.gear(mGear_Information)), "gear=$mGear_Information")
+            emit(token, TopwayReading(gear = TopwayMapping.gear(mGear_Information)), "gear=$mGear_Information")
         override fun onCarReverse(mCarReverse: Boolean) =
-            emit(TopwayReading(gear = TopwayMapping.gearFromReverse(if (mCarReverse) 1 else 0)), "reverse=$mCarReverse")
+            emit(token, TopwayReading(gear = TopwayMapping.gearFromReverse(if (mCarReverse) 1 else 0)), "reverse=$mCarReverse")
         override fun onHeadlight(mHeadlight: Boolean) =
-            emit(TopwayReading(lightsOn = mHeadlight), "headlight=$mHeadlight")
+            emit(token, TopwayReading(lightsOn = mHeadlight), "headlight=$mHeadlight")
         override fun onElectricVoltage(mVoltage: Float, mUnit: String?) =
-            emit(TopwayReading(voltageV = TopwayMapping.voltage(mVoltage)), "voltage=$mVoltage$mUnit")
+            emit(token, TopwayReading(voltageV = TopwayMapping.voltage(mVoltage)), "voltage=$mVoltage$mUnit")
         override fun onOriginalCarVoltage(mVoltage: Float, mUnit: String?) =
-            emit(TopwayReading(voltageV = TopwayMapping.voltage(mVoltage)), "car_voltage=$mVoltage$mUnit")
+            emit(token, TopwayReading(voltageV = TopwayMapping.voltage(mVoltage)), "car_voltage=$mVoltage$mUnit")
 
         // --- Valores no usados (se registran sólo en diagnóstico cuando son útiles) ---
         override fun onDrivingTime(mDrivingTime: Int) {}
@@ -191,10 +230,14 @@ class TopwayCarInfo(
     }
 
     companion object {
+        private val readWorker = Executors.newSingleThreadExecutor { task ->
+            Thread(task, "TopwayReadOnly").apply { isDaemon = true }
+        }
         const val PACKAGE = "com.tw.carinfoservice"
         const val ACTION = "com.tw.carinfoservice.CarService.Bind"
         private const val TAG = "GlassCarTopway"
         private const val RETRY_MS = 3_000L
+        private const val POLL_MS = 2_000L
     }
 
 }

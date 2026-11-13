@@ -28,6 +28,7 @@ object HardwareDiagnostics {
 
     fun report(context: Context, apps: List<AppEntry>, config: LauncherConfig, can: CanState): String = buildString {
         appendLine("GlassCar ${BuildConfig.VERSION_NAME} · diagnóstico local")
+        appendLine("Paquete: ${context.packageName} · apps incrustadas: ${BuildConfig.REAL_APP_EMBEDDING}")
         appendLine("Fabricante: ${Build.MANUFACTURER} · modelo: ${Build.MODEL}")
         appendLine("Producto: ${Build.PRODUCT} · dispositivo: ${Build.DEVICE} · hardware: ${Build.HARDWARE}")
         appendLine("Android ${Build.VERSION.RELEASE} · API ${Build.VERSION.SDK_INT} · compilación ${Build.DISPLAY}")
@@ -56,6 +57,7 @@ object HardwareDiagnostics {
         appendLine(CameraHardwareDiagnostics.report(context))
         if (BuildConfig.REAL_APP_EMBEDDING) appendLine(EmbeddingReport.report())
         appendLine(MediaReport.report())
+        appendLine(ProjectionCalls.report())
         for ((slot, shortcut) in listOf("maps" to DockShortcuts[0], "carplay" to QuickShortcuts[6], "camera" to QuickShortcuts[3])) {
             val app = resolveApp(apps, config, slot, shortcut)
             appendLine("$slot: ${app?.componentKey ?: "no asignada"}")

@@ -1,4 +1,14 @@
-# GlassCar Ultra 4.2 · prueba TS10
+# GlassCar Ultra 4.5 · integración persistente TS10
+
+Variante de prueba `embedding`, paquete `com.glasscar.launcher.embedtest`, versión `4.5-ts10-integrated-real-app-prototype` / code 9. Requiere Android 10/API29 y Shizuku activo/autorizado.
+
+CarPlay ocupa toda la pantalla del launcher con controles por gestos. Las sesiones de Maps, Tlink y DVR se conservan al cambiar de pestaña. Se añadieron consultas/reconexión CAN y retorno a CarPlay mediante la señal de llamada observada en TWService. [Cambios, evidencia y prueba física](docs/INTEGRACION-4.5.md).
+
+**No equivale a una reparación física confirmada:** falta validar CAN, continuidad de proyección/grabación, señal de llamada y gestos en el estéreo. El video DVR independiente y la supresión de ventanas/ringtone OEM siguen pendientes. No borrar HD Car DVR ni Tlink. [Registro para continuar](docs/CONTINUAR-CODEX.md).
+
+## Historial anterior
+
+### GlassCar Ultra 4.2 · prueba TS10
 
 Adaptador experimental identificado en las APK originales del equipo: lectura del volumen/escala/silencio mediante TWUtil y cambio absoluto desde el deslizador con confirmación del estéreo. Solo se activa en el perfil UIS7862/API29 inspeccionado. Si falla el acceso o no llega confirmación, ofrece el panel nativo. **Funcionamiento físico pendiente de prueba.**
 

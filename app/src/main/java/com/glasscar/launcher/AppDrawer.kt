@@ -48,7 +48,7 @@ internal fun AppDrawer(apps: List<AppEntry>, onUninstall: (AppEntry) -> Unit, on
             Column(Modifier.fillMaxSize()) {
                 Row(Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 24.dp),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                    Txt(if (selected == null) "Mantén pulsada una app para desinstalar" else selected!!.label, 16.sp,
+                    Txt(selected?.label.orEmpty(), 16.sp,
                         modifier = Modifier.weight(1f))
                     if (selected != null) {
                         Row(verticalAlignment = Alignment.CenterVertically) {

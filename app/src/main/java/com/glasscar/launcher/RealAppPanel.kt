@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.graphics.SurfaceTexture
+import android.graphics.Matrix
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.os.Binder
@@ -36,6 +37,16 @@ import androidx.lifecycle.LifecycleEventObserver
 import rikka.shizuku.Shizuku
 import java.util.concurrent.Executors
 
+internal class EmbeddedSessionStore(private val context: Context) {
+    private val sessions = linkedMapOf<String, RealAppController>()
+    private var active = false
+    fun session(target: String) = sessions.getOrPut(target) { RealAppController(context, target).also { it.setActive(active) } }
+    fun setActive(value: Boolean) { active = value; sessions.values.forEach { it.setActive(value) } }
+    fun dispose() { sessions.values.forEach { it.dispose() }; sessions.clear() }
+}
+
+internal val LocalEmbeddedSessions = staticCompositionLocalOf<EmbeddedSessionStore?> { null }
+
 object EmbeddingReport {
     private val details = linkedMapOf<String, String>()
     @Synchronized fun record(target: String, text: String) { details[target] = text.take(1800) }
@@ -48,10 +59,11 @@ fun RealAppPanel(target: String, title: String, modifier: Modifier,
     expanded: Boolean = false, onExpand: (() -> Unit)? = null) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    var status by remember(target) { mutableStateOf(EmbeddedPanelStatus()) }
-    val controller = remember(target) { RealAppController(context, target) { status = it } }
-    EmbeddedPanelFrame(title, status, modifier, controller::start, expanded, onExpand) {
-        AndroidView(factory = { TextureView(it).also(controller::attach) }, modifier = Modifier.fillMaxSize())
+    val store = LocalEmbeddedSessions.current
+    val controller = remember(target, store) { store?.session(target) ?: RealAppController(context, target) }
+    EmbeddedPanelFrame(title, controller.status, modifier, controller::start, expanded, onExpand) {
+        AndroidView(factory = { TextureView(it).also(controller::attach) }, modifier = Modifier.fillMaxSize(),
+            onRelease = controller::detach)
     }
     DisposableEffect(controller, lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
@@ -61,9 +73,11 @@ fun RealAppPanel(target: String, title: String, modifier: Modifier,
                 else -> Unit
             }
         }
-        lifecycle.addObserver(observer)
-        controller.setActive(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
-        onDispose { lifecycle.removeObserver(observer); controller.dispose() }
+        if (store == null) {
+            lifecycle.addObserver(observer)
+            controller.setActive(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+        }
+        onDispose { lifecycle.removeObserver(observer); if (store == null) controller.dispose() }
     }
 }
 
@@ -75,7 +89,7 @@ internal data class EmbeddedPanelStatus(val message: String = "Conectando…", v
 internal fun EmbeddedPanelFrame(title: String, status: EmbeddedPanelStatus, modifier: Modifier,
     onRetry: () -> Unit, expanded: Boolean = false, onExpand: (() -> Unit)? = null,
     content: @Composable () -> Unit) {
-    Box(modifier.clip(RoundedCornerShape(12.dp)).background(Color.Black)
+    Box(modifier.background(Color.Black)
         .semantics { contentDescription = "Panel de $title" }) {
         content()
         if (!status.running) {
@@ -96,13 +110,18 @@ internal fun EmbeddedPanelFrame(title: String, status: EmbeddedPanelStatus, modi
     }
 }
 
-private class RealAppController(private val context: Context, private val target: String,
-    private val update: (EmbeddedPanelStatus) -> Unit) : TextureView.SurfaceTextureListener {
+internal class RealAppController(private val context: Context, private val target: String) : TextureView.SurfaceTextureListener {
+    var status by mutableStateOf(EmbeddedPanelStatus())
+        private set
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
     private var view: TextureView? = null
     private var display: VirtualDisplay? = null
     private var surface: Surface? = null
+    private var retainedTexture: SurfaceTexture? = null
+    private var bufferWidth = 0
+    private var bufferHeight = 0
+    private var launches = 0
     private var remote: IEmbeddedAppService? = null
     private var connection: ServiceConnection? = null
     private var args: Shizuku.UserServiceArgs? = null
@@ -114,7 +133,7 @@ private class RealAppController(private val context: Context, private val target
     private var restartAfterClose = false
     private var connectTimeout: Runnable? = null
     private val lifetime = Binder()
-    // A quickly reopened tab must not reuse a service whose previous host is still closing.
+    // A new launcher instance must not reuse a service whose previous host is still closing.
     private val serviceTag = "glasscar-embed-$target-${java.util.UUID.randomUUID()}"
     private val permissionListener = Shizuku.OnRequestPermissionResultListener { code, result ->
         if (code == requestCode && !disposed) main.post {
@@ -128,15 +147,21 @@ private class RealAppController(private val context: Context, private val target
     private val requestCode = 8420 + EmbeddingPolicy.components.keys.indexOf(target)
     init { Shizuku.addRequestPermissionResultListener(permissionListener) }
     private fun tell(text: String, retry: Boolean = true) {
-        EmbeddingReport.record(target, text)
+        reportSession(text)
         val state = EmbeddedPanelStatus(text, running = ready, retry = retry)
-        main.post { if (!disposed) update(state) }
+        main.post { if (!disposed) status = state }
+    }
+
+    private fun reportSession(text: String) {
+        EmbeddingReport.record(target, "$text · inicios=$launches · display=${display?.display?.displayId ?: -1}" +
+            " · buffer=${bufferWidth}x$bufferHeight · superficie=${retainedTexture?.isReleased == false}")
     }
 
     fun setActive(value: Boolean) {
         if (disposed || active == value) return
         active = value
-        if (value) start() else { restartAfterClose = false; stop() }
+        // Retain the guest task across tab changes and temporary window focus loss.
+        if (value) start()
     }
 
     fun attach(texture: TextureView) {
@@ -148,6 +173,8 @@ private class RealAppController(private val context: Context, private val target
             if (!ready || current == null || service == null) false else {
                 if (event.actionMasked == MotionEvent.ACTION_DOWN) texture.parent?.requestDisallowInterceptTouchEvent(true)
                 val copy = MotionEvent.obtain(event)
+                copy.transform(Matrix().apply { setScale(bufferWidth.toFloat() / texture.width.coerceAtLeast(1),
+                    bufferHeight.toFloat() / texture.height.coerceAtLeast(1)) })
                 try { service.touch(current.display.displayId, copy) }
                 catch (_: Exception) { stop("Se perdió la conexión de interacción") }
                 finally { copy.recycle() }
@@ -157,6 +184,12 @@ private class RealAppController(private val context: Context, private val target
             }
         }
         if (texture.isAvailable) start()
+    }
+
+    fun detach(texture: TextureView) {
+        texture.setOnTouchListener(null)
+        if (view === texture) view = null
+        // Keep the listener until Android detaches the view: returning false retains its buffer.
     }
 
     fun start() {
@@ -183,11 +216,14 @@ private class RealAppController(private val context: Context, private val target
             if (!info.enabled || !info.exported) { tell("La actividad seleccionada no está disponible"); return }
             val width = texture.width; val height = texture.height
             image.setDefaultBufferSize(width, height)
+            retainedTexture = image
+            bufferWidth = width; bufferHeight = height
             surface = Surface(image)
             val manager = context.getSystemService(DisplayManager::class.java)
             // Android 10's DESTROY_CONTENT_ON_REMOVAL (1 << 8) avoids migrating guest tasks to display 0.
             display = createPanelDisplay(manager, width, height)
             val current = display ?: throw IllegalStateException("Sin pantalla virtual")
+            launches++
             val token = ++generation
             val userArgs = Shizuku.UserServiceArgs(ComponentName(context.packageName, EmbeddedAppService::class.java.name))
                 .daemon(false).processNameSuffix(when (target) {
@@ -287,25 +323,28 @@ private class RealAppController(private val context: Context, private val target
         stop()
         disposed = true
         Shizuku.removeRequestPermissionResultListener(permissionListener)
+        retainedTexture?.let { runCatching { it.release() } }; retainedTexture = null
         view?.surfaceTextureListener = null
         view?.setOnTouchListener(null)
         view = null
         worker.shutdown()
     }
-    override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) { start() }
+    override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
+        val previous = retainedTexture
+        if (previous != null && previous !== surface && !previous.isReleased) view?.setSurfaceTexture(previous)
+        else retainedTexture = surface
+        start()
+        reportSession(if (ready) "Sesión conservada" else status.message)
+    }
     override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
         if (width < 64 || height < 64) return
-        val current = display
-        if (current == null) start() else runCatching {
-            surface.setDefaultBufferSize(width, height)
-            current.resize(width, height, context.resources.displayMetrics.densityDpi)
-        }.onFailure { stop("No se pudo ajustar el tamaño. Vuelve a intentar") }
+        // Scale the retained buffer and map touch coordinates, avoiding guest activity recreation.
+        if (display == null) start()
     }
     override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-        // A replacement surface may arrive before the old session has finished closing.
-        restartAfterClose = false
-        stop()
-        return true
+        if (disposed) return true
+        retainedTexture = surface
+        return false
     }
     override fun onSurfaceTextureUpdated(surface: SurfaceTexture) = Unit
 }

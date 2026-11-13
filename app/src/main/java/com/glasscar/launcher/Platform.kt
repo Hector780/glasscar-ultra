@@ -348,11 +348,11 @@ data class NavigationInfo(val title: String = "", val instruction: String = "", 
 class MediaListenerService : NotificationListenerService() {
     companion object { val navigation = MutableStateFlow(NavigationInfo()) }
     override fun onListenerConnected() {
-        ProjectionMedia.clear()
+        ProjectionMedia.clear(); ProjectionCalls.clear()
         activeNotifications?.forEach(::onNotificationPosted)
     }
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
-        if (sbn != null) ProjectionMedia.post(this, sbn)
+        if (sbn != null) { ProjectionMedia.post(this, sbn); ProjectionCalls.post(sbn) }
         if (sbn?.packageName != "com.google.android.apps.maps" || !sbn.isOngoing) return
         val extras = sbn.notification.extras
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
@@ -361,10 +361,10 @@ class MediaListenerService : NotificationListenerService() {
         navigation.value = NavigationInfo(title, text, SystemClock.elapsedRealtime())
     }
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
-        sbn?.let { ProjectionMedia.remove(it.key) }
+        sbn?.let { ProjectionMedia.remove(it.key); ProjectionCalls.remove(it.key) }
         if (sbn?.packageName == "com.google.android.apps.maps") navigation.value = NavigationInfo()
     }
-    override fun onListenerDisconnected() { navigation.value = NavigationInfo(); ProjectionMedia.clear() }
+    override fun onListenerDisconnected() { navigation.value = NavigationInfo(); ProjectionMedia.clear(); ProjectionCalls.clear() }
 }
 
 data class MediaInfo(

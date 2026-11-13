@@ -86,6 +86,10 @@ class DashboardUiTest {
         compose.onNodeWithContentDescription("Abrir aplicaciones").assertIsDisplayed()
         compose.onNodeWithText("CarPlay").performClick()
         compose.onNodeWithContentDescription("Abrir aplicaciones").assertDoesNotExist()
+        for (tab in listOf("Tablero", "Cámara", "Instrumentos")) compose.onNodeWithText(tab).assertDoesNotExist()
+        compose.onNodeWithContentDescription("Mostrar pestañas").performTouchInput {
+            swipe(start = center, end = center + Offset(0f, 80f), durationMillis = 250)
+        }
         for (tab in listOf("Tablero", "Cámara", "Instrumentos")) compose.onNodeWithText(tab).assertIsDisplayed()
         val panel = compose.onNodeWithText("CarPlay · Tlink5").fetchSemanticsNode().boundsInRoot
         org.junit.Assert.assertTrue("CarPlay should reclaim the left dock", panel.left < 40f)

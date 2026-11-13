@@ -154,19 +154,36 @@ fun LauncherRoot(
     onCloseDrawer: () -> Unit,
     actions: LauncherActions,
     preferences: LauncherPreferences? = null,
-    permissionVersion: Int = 0
+    permissionVersion: Int = 0,
+    carPlayRequest: Int = 0,
+    volumeKeyEvent: Int = 0
 ) {
     val context = LocalContext.current
     val prefs = preferences ?: remember { LauncherPreferences(context) }
+    val embeddedSessions = remember(context) { EmbeddedSessionStore(context) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    androidx.compose.runtime.DisposableEffect(embeddedSessions, lifecycle) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> embeddedSessions.setActive(true)
+                Lifecycle.Event.ON_STOP -> embeddedSessions.setActive(false)
+                else -> Unit
+            }
+        }
+        lifecycle.addObserver(observer)
+        embeddedSessions.setActive(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+        onDispose { lifecycle.removeObserver(observer); embeddedSessions.dispose() }
+    }
     val config by prefs.state.collectAsState()
     val density = LocalDensity.current
     BoxWithConstraints(Modifier.fillMaxSize()) {
         // Some head units report mdpi even on a 1920px panel. Keep a usable cockpit scale.
         val fit = min(maxWidth.value / 1024f, maxHeight.value / 600f).coerceAtLeast(1f)
         val scale = fit * config.uiScale
-        CompositionLocalProvider(LocalDensity provides Density(density.density * scale, density.fontScale)) {
+        CompositionLocalProvider(LocalDensity provides Density(density.density * scale, density.fontScale),
+            LocalEmbeddedSessions provides embeddedSessions) {
             LauncherContent(apps, driveFlow, mediaFlow, canFlow, weatherSource, showDrawer,
-                onToggleDrawer, onCloseDrawer, actions, prefs, permissionVersion)
+                onToggleDrawer, onCloseDrawer, actions, prefs, permissionVersion, carPlayRequest, volumeKeyEvent)
         }
     }
 }
@@ -184,7 +201,9 @@ private fun LauncherContent(
     onCloseDrawer: () -> Unit,
     actions: LauncherActions,
     preferences: LauncherPreferences? = null,
-    permissionVersion: Int = 0
+    permissionVersion: Int = 0,
+    carPlayRequest: Int = 0,
+    volumeKeyEvent: Int = 0
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -205,6 +224,18 @@ private fun LauncherContent(
                 carPlayOpened = true
                 actions.openSlot("carplay", QuickShortcuts[6], apps)
             }
+        }
+    }
+    val callActive by ProjectionCalls.active.collectAsState()
+    LaunchedEffect(carPlayRequest) {
+        if (carPlayRequest > 0) {
+            onCloseDrawer(); sheet = null; mapExpanded = false
+            pager.scrollToPage(1)
+        }
+    }
+    LaunchedEffect(callActive) {
+        if (BuildConfig.REAL_APP_EMBEDDING && callActive) {
+            onCloseDrawer(); sheet = null; mapExpanded = false; pager.scrollToPage(1)
         }
     }
     val realDrive by driveFlow.collectAsState()
@@ -257,6 +288,16 @@ private fun LauncherContent(
         }
     }
 
+    var volumeEvent by remember { mutableIntStateOf(0) }
+    val twVolume = TopwayAudio.controller.state.volume
+    val observedVolume = if (config.nativeAudio) twVolume?.let { it.level to it.muted }
+        else (status.volume * 1000).roundToInt() to false
+    var previousVolume by remember { mutableStateOf<Pair<Int, Boolean>?>(null) }
+    LaunchedEffect(observedVolume) {
+        if (observedVolume != null && previousVolume != null && observedVolume != previousVolume) volumeEvent++
+        previousVolume = observedVolume
+    }
+    LaunchedEffect(volumeKeyEvent) { if (volumeKeyEvent > 0) volumeEvent++ }
     val night = config.night
     // Si el módulo CANbus RP5-FD-002 reporta cambio en las luces (ILL) de la Escape, ajusta automático
     LaunchedEffect(can.lightsOn) {
@@ -286,17 +327,12 @@ private fun LauncherContent(
                     }) { _, amount -> distance += amount }
                 }
             }) {
-            Row(Modifier.fillMaxSize().padding(if (immersive) 4.dp else 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxSize().padding(if (immersive) 0.dp else 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (!immersive) SpatialDock(status, drive.hasFix, apps, config, actions, onToggleDrawer, configure,
                     Modifier.width(92.dp).fillMaxHeight())
                 Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(if (immersive) 2.dp else 10.dp)) {
-                    Row(Modifier.fillMaxWidth().height(if (immersive) 44.dp else 48.dp), verticalAlignment = Alignment.CenterVertically) {
-                        listOf("Tablero", "CarPlay", "Cámara", "Instrumentos").forEachIndexed { index, name ->
-                            Box(Modifier.weight(1f).clip(RoundedCornerShape(18.dp))
-                                .background(if (!showDrawer && pager.currentPage == index) palette.pillFill else Color.Transparent)
-                                .bounceClick { onCloseDrawer(); mapExpanded = false; scope.launch { pager.scrollToPage(index) } }
-                                .padding(vertical = 10.dp), contentAlignment = Alignment.Center) { Txt(name, 17.sp, FontWeight.SemiBold) }
-                        }
+                    if (!immersive) LauncherTabs(pager.currentPage, showDrawer) { index ->
+                        onCloseDrawer(); mapExpanded = false; scope.launch { pager.scrollToPage(index) }
                     }
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         if (showDrawer) AppDrawer(apps, actions::uninstall) { actions.open(it); onCloseDrawer() }
@@ -313,14 +349,34 @@ private fun LauncherContent(
                             }
                         }
                     }
-                    QuickControlBar(status, night, { prefs.setNight(!night) }, actions,
+                    if (!immersive) QuickControlBar(status, night, { prefs.setNight(!night) }, actions,
                         Modifier.fillMaxWidth().height(if (immersive) 48.dp else 58.dp), config.nativeAudio)
                 }
             }
+            if (immersive) ImmersiveControls(volumeEvent,
+                top = { LauncherTabs(pager.currentPage, showDrawer) { index ->
+                    onCloseDrawer(); mapExpanded = false; scope.launch { pager.scrollToPage(index) }
+                } },
+                bottom = { QuickControlBar(status, night, { prefs.setNight(!night) }, actions,
+                    Modifier.fillMaxSize(), config.nativeAudio) })
             sheet?.let { selected ->
                 LauncherSheet(selected, apps, config, prefs, drive, weather, status, can, actions,
                     onDismiss = { sheet = null }, onChoose = configure,
                     onRefreshWeather = { scope.launch { drive.lat?.let { lat -> drive.lon?.let { lon -> weatherSource.refresh(lat, lon, true) } } } })
+            }
+        }
+    }
+}
+
+@Composable
+private fun LauncherTabs(selected: Int, drawer: Boolean, onSelect: (Int) -> Unit) {
+    val palette = LocalBackdrop.current.palette
+    Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
+        listOf("Tablero", "CarPlay", "Cámara", "Instrumentos").forEachIndexed { index, name ->
+            Box(Modifier.weight(1f).clip(RoundedCornerShape(18.dp))
+                .background(if (!drawer && selected == index) palette.pillFill else Color.Transparent)
+                .bounceClick { onSelect(index) }.padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
+                Txt(name, 17.sp, FontWeight.SemiBold)
             }
         }
     }
@@ -936,10 +992,10 @@ private fun QuickControlBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            if (nativeAudio && (!nativeReady || tw.pendingLevel != null)) Box(
+            if (nativeAudio && !nativeReady) Box(
                 Modifier.weight(1f).height(44.dp).bounceClick { actions.openNativeControls() }, contentAlignment = Alignment.Center
             ) {
-                Txt(if (tw.pendingLevel != null) "Confirmando volumen…" else "Volumen del estéreo · Abrir", 14.sp, FontWeight.Medium)
+                GlyphIcon(Glyph.Speaker, Modifier.size(24.dp), LocalBackdrop.current.palette.textSecondary)
             } else GlassTube(
                 value = volume,
                 glyph = Glyph.Speaker,
