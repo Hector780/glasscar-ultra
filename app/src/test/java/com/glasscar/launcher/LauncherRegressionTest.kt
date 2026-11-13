@@ -88,6 +88,13 @@ class LauncherRegressionTest {
         assertFalse(media.state.value.hasSession)
     }
     @Test fun activityCanOpenPauseAndResumeWithoutDevicePermissions() {
+        // This generic device has no Topway service; do not synthesize a null service connection.
+        val application = ApplicationProvider.getApplicationContext<android.app.Application>()
+        org.robolectric.Shadows.shadowOf(application).apply {
+            declareActionUnbindable(TopwayCarInfo.ACTION)
+            // Android does not call onServiceDisconnected when the client unbinds.
+            setUnbindServiceCallsOnServiceDisconnected(false)
+        }
         val activity = org.robolectric.Robolectric.buildActivity(MainActivity::class.java).setup()
         activity.pause().stop().restart().start().resume()
         assertFalse(activity.get().isFinishing)
