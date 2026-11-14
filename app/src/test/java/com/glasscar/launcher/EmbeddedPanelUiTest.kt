@@ -48,6 +48,43 @@ class EmbeddedPanelUiTest {
         compose.onNodeWithText("Autoriza GlassCar en Shizuku").assertDoesNotExist()
     }
 
+    @Test fun cameraSelectorFloatsOverFullSizeVideoWithoutASeparateRow() {
+        val source = mutableStateOf(CameraSource.FRONT)
+        compose.setContent {
+            EmbeddedCameraPanel(source.value, { source.value = it }, false, Modifier.fillMaxSize().testTag("panel")) {
+                Box(Modifier.fillMaxSize().background(Color.Black).testTag("video"))
+            }
+        }
+        val panel = compose.onNodeWithTag("panel").fetchSemanticsNode().boundsInRoot
+        assertEquals(panel, compose.onNodeWithTag("video").fetchSemanticsNode().boundsInRoot)
+        compose.onNodeWithText("Cámara trasera · original").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Estado de la cámara trasera").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Cámara frontal").assertIsSelected()
+        val rear = compose.onNodeWithContentDescription("Cámara trasera").fetchSemanticsNode().boundsInRoot
+        assertTrue("touch target ${rear.height}", rear.height >= 48f && rear.width >= 48f)
+        assertTrue("capsule stays inside the video", rear.top >= panel.top && rear.right <= panel.right)
+        compose.onNodeWithContentDescription("Cámara trasera").performClick()
+        assertEquals(CameraSource.REAR, source.value)
+        compose.onNodeWithContentDescription("Cámara trasera").assertIsSelected()
+        compose.onNodeWithContentDescription("Estado de la cámara trasera").assertIsDisplayed()
+        compose.onNodeWithText("Sin imagen fuera de reversa", substring = true).assertIsDisplayed()
+        // The DVR stays composed at the same size underneath: its session and recording are not torn down.
+        assertEquals(panel, compose.onNodeWithTag("video").fetchSemanticsNode().boundsInRoot)
+        compose.onNodeWithContentDescription("Cámara frontal").performClick()
+        assertEquals(CameraSource.FRONT, source.value)
+        compose.onNodeWithContentDescription("Estado de la cámara trasera").assertDoesNotExist()
+    }
+
+    @Test fun rearStateNamesRealReverseAndSelectorHidesWithoutACallback() {
+        compose.setContent {
+            EmbeddedCameraPanel(CameraSource.REAR, null, true, Modifier.fillMaxSize()) { Box(Modifier.fillMaxSize()) }
+        }
+        compose.onNodeWithText("Reversa detectada", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("Sin imagen fuera de reversa", substring = true).assertDoesNotExist()
+        compose.onNodeWithContentDescription("Cámara frontal").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Cámara trasera").assertDoesNotExist()
+    }
+
     @Test fun mapExpansionKeepsFullGuestAreaAndOffersReturn() {
         val expanded = mutableStateOf(false)
         compose.setContent {

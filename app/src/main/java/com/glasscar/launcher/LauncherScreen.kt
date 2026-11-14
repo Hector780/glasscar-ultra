@@ -238,6 +238,22 @@ private fun LauncherContent(
             onCloseDrawer(); sheet = null; mapExpanded = false; pager.scrollToPage(1)
         }
     }
+    // 4.7: real reverse (TW 0x9f1c / TWService broadcast) moves to the Camera tab once per transition.
+    // Counters observed before this composition are treated as already handled, so nothing loops.
+    var cameraSource by rememberSaveable { mutableStateOf(CameraSource.FRONT) }
+    val reverse = ReverseSignal.state
+    var reverseNavigation by remember { mutableStateOf(ReverseNavigation(reverse.entries, reverse.exits)) }
+    LaunchedEffect(reverse.entries, reverse.exits) {
+        val step = ReverseNavigator.advance(reverseNavigation, reverse, pager.currentPage, cameraSource)
+        reverseNavigation = step.navigation
+        val nextSource = step.source
+        if (nextSource != null) cameraSource = nextSource
+        val nextPage = step.page
+        if (nextPage != null) {
+            if (step.entering) { onCloseDrawer(); sheet = null; mapExpanded = false }
+            pager.scrollToPage(nextPage)
+        }
+    }
     val realDrive by driveFlow.collectAsState()
     val realMedia by mediaFlow.collectAsState()
     val can by canFlow.collectAsState()
@@ -351,7 +367,8 @@ private fun LauncherContent(
                                     media, weather, apps, status, actions, config, configure, can, permissionVersion,
                                     mapExpanded, { mapExpanded = !mapExpanded }, { scope.launch { pager.scrollToPage(1) } })
                                 1 -> if (keepAlive || pager.settledPage == 1) CarPlayPanel(config, apps, actions, configure, Modifier.fillMaxSize())
-                                2 -> if (keepAlive || pager.settledPage == 2) CameraPanel(config, apps, actions, configure, permissionVersion, Modifier.fillMaxSize())
+                                2 -> if (keepAlive || pager.settledPage == 2) CameraPanel(config, apps, actions, configure, permissionVersion, Modifier.fillMaxSize(),
+                                    source = cameraSource, onSource = { cameraSource = it })
                                 3 -> ClusterCard(drive, speed, gear, manualGear != null, { manualGear = it }, { manualGear = null },
                                     apps, actions, Modifier.fillMaxSize())
                             }
@@ -993,9 +1010,11 @@ private fun QuickControlBar(
     LaunchedEffect(shownVolume, dragging, nativeAudio, tw.pendingLevel) {
         if (!dragging) volume = shownVolume
     }
-    var brightness by remember { mutableFloatStateOf(status.brightness) }
+    // 4.7: one brightness model (TopwayBrightness.kt), shared with the future control center.
+    val backlight = brightnessModel(tw, status.brightness, android.os.SystemClock.elapsedRealtime())
+    var brightness by remember { mutableFloatStateOf(backlight.fraction) }
     var draggingBrightness by remember { mutableStateOf(false) }
-    LaunchedEffect(status.brightness) { if (!draggingBrightness) brightness = status.brightness }
+    LaunchedEffect(backlight.fraction, draggingBrightness) { if (!draggingBrightness) brightness = backlight.fraction }
 
     SpatialGlassSurface(modifier, cornerRadius = 28.dp) {
         Row(
@@ -1025,15 +1044,25 @@ private fun QuickControlBar(
                 volume = it
                 if (!nativeAudio) actions.setVolume(it)
             }
-            GlassTube(
+            // Without a fresh native reading the bar offers the stereo's own panel instead of a slider that
+            // would only move on screen.
+            if (backlight.native && !backlight.ready) Box(
+                Modifier.weight(1f).height(44.dp)
+                    .semantics { contentDescription = "Abrir el brillo del estéreo" }
+                    .bounceClick { actions.openNativeControls() }, contentAlignment = Alignment.Center
+            ) {
+                GlyphIcon(Glyph.Sun, Modifier.size(24.dp), LocalBackdrop.current.palette.textSecondary)
+            } else GlassTube(
                 value = brightness,
                 glyph = Glyph.Sun,
                 modifier = Modifier
                     .weight(1f)
                     .height(42.dp),
-                onDragState = { draggingBrightness = it }
+                onDragState = { draggingBrightness = it },
+                label = if (backlight.native) "${TopwayBrightnessProtocol.target(brightness)}/${backlight.maximum}" else null
             ) {
-                brightness = it.coerceAtLeast(0.12f)
+                brightness = if (backlight.native) TopwayBrightnessProtocol.target(it).toFloat() / backlight.maximum
+                    else it.coerceAtLeast(0.12f)
                 actions.setBrightness(brightness)
             }
             Box(

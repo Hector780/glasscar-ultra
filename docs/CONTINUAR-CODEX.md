@@ -129,3 +129,34 @@ Validación local final de esta revisión: `tools/Compilar-4.6.ps1` → BUILD SU
 Se corrigieron los nombres de APK previos en INSTALAR_DESPUES conservando los archivos: el falso «4.5 embedding» ahora se llama `GlassCar-4.5-cameradiag-ARCHIVO-ANTES-MAL-NOMBRADO.apk`; el verdadero4.5 queda como referencia. La 4.6 previa sin commit quedó marcada `PREVIA-SIN-COMMIT`. La entrega vigente está en `LEEME-4.6.txt`.
 
 El siguiente commit sólo documenta esta entrega y usa `[skip ci]`: no modifica el código del APK validado. Continuar con los videos en el otro chat; no rehacer el overlay de volumen ni presentar la continuidad DVR/CAN/llamadas como probadas físicamente.
+
+
+## 4.7 etapa 1: Cámara y reversa real (13 nov 2026, Claude/Cowork) — SIN COMPILAR, SIN COMMIT
+
+Especificación: `docs/ESPEC-4.7-VIDEO.md`. Orden y límites: `docs/PROMPT-FABLE-4.7.md`. Detalle de archivos, riesgos de compilación, pruebas físicas y mensaje de commit: **`docs/PENDIENTE-PUSH.md`** (leerlo antes de compilar). Claude no hace commit/push; Codex compila con `tools/Compilar-4.7.ps1` (code 11, `4.7-ts10-integrated`).
+
+Hecho en código (sin probar en el estéreo):
+- Cámara (embedding): se quitó la fila «Cámara trasera · original»; el DVR ocupa todo el panel y el selector Frontal/Trasera es una cápsula sobrepuesta (`EmbeddedCameraPanel`, `CameraSourceCapsule`, `RearCameraState` en EmbeddedPanels.kt).
+- Señal real de reversa: canal TW `0x9f1c` (arg1 1/0), el mismo mensaje con el que TWService abre ReverseActivity. Se escucha junto con `0x20b` en la conexión TWUtil que ya tenía TopwayAudio (con reintento a la lista 4.6 si TW rechaza la ampliada), más la difusión `com.unisound.intent.action.DO_MUTE/DO_UNMUTE` con extra `reverse`. Solo lectura: no existe consulta conocida, no se escribe nada. Estado en `ReverseSignal` (ReverseSignal.kt).
+- Navegación: `ReverseNavigator` pasa a Cámara + Trasera una vez por flanco de subida y regresa a la página anterior al salir si el conductor no tocó nada.
+- Diagnóstico: bloque «Reversa» y línea «TW reversa (escucha 0x9f1c/0x20b)».
+
+Límites que NO se resolvieron (no presentarlos como hechos):
+- La trasera no se ve dentro del panel. Fuera de reversa la propia app OEM se ve negra; su ruta usa `sys.camera.ch`, `Camera.open(0)` y `TW 0x304`, que GlassCar no puede o no debe usar sin prueba. `com.tw.reverse` sigue fuera de `EmbeddingPolicy` a propósito (es la pantalla de seguridad que TWService abre en reversa real).
+- En reversa real TWService sigue mostrando su cámara a pantalla completa encima de GlassCar.
+- Nada verificado físicamente: aceptación de los canales por una app que no es de sistema, salto de pestaña, tamaño del video, grabación DVR.
+
+Siguiente paso para Codex: compilar, corregir según la lista de riesgos de PENDIENTE-PUSH.md, correr las 16 pruebas nuevas, commit/push y APK. Siguiente etapa para Claude: etapa 2 (brillo físico, contrato TW 516) sobre la misma conexión TWUtil.
+
+
+## 4.7 etapa 2: brillo físico TW 516 (13 nov 2026, Claude/Cowork) — SIN COMPILAR, SIN COMMIT
+
+Detalle y riesgos en `docs/PENDIENTE-PUSH.md`, sección «Etapa 2».
+
+- Contrato usado: `TWUtil.write(516, modo, valor, null)` con valor 1..10 (el deslizador nativo hace `setMax(10)`), lectura 516 (`arg1` noche, `arg2` = día | noche << 8) y blmode por el canal 258 (0x102, `arg2`). Todo por la conexión TWUtil única de `TopwayAudio` (ahora abre 0x203, 0x204, 0x102, 0x9f1c, 0x20b con reintento escalonado hasta la lista 4.6).
+- **La tabla de blmode del prompt estaba invertida.** Según el desensamblado: 0 automático (sigue nightMode), 1 día (modo 0), 2 noche (modo 1). Se implementó así en `TopwayBrightnessProtocol.activeNight`; confirmar físicamente si el estéreo está en día fijo o noche fijo.
+- Estado único: `TopwayAudio.controller.state.brightness` + `brightnessModel()` (TopwayBrightness.kt). La barra inferior ya lo usa; el centro de control de la etapa 5 debe usar ese mismo modelo y `LauncherActions.setBrightness`, sin estado propio.
+- `MainActivity.setBrightness` ya no escribe `Settings.System` cuando el TS10 está conectado.
+- Pendiente físico: que el estéreo acepte 516 y responda 258 a una app normal, y que el panel cambie de verdad.
+
+Siguiente etapa para Claude: etapa 3 (geometría y gestos). Tener en cuenta la observación de PENDIENTE-PUSH.md sobre el display de Tlink creado con tamaño no inmersivo.

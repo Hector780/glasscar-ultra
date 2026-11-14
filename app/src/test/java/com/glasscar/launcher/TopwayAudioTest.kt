@@ -126,6 +126,23 @@ class TopwayAudioTest {
         } finally { c.stop() }
         assertNull(c.state.nightLights)
     }
+    @Test fun reverseChannelsAreForwardedListenOnlyAndIgnoredAfterStop() {
+        val seen = mutableListOf<Pair<ReverseSource, Int>>()
+        val fake = Fake()
+        val c = TopwayAudioController({ fake }, onReverse = { source, raw -> seen.add(source to raw) })
+        c.start(true); shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(false, c.state.reverseListening)
+        fake.emit(1, 0, ReverseProtocol.STATE_CHANNEL)
+        fake.emit(0, 0, ReverseProtocol.MCU_CHANNEL)
+        fake.emit(1, 0, 0x9f1d)
+        assertEquals(listOf(ReverseSource.TW_STATE to 1, ReverseSource.TW_MCU to 0), seen)
+        // Reverse traffic never produces a volume reading, a write or a second query.
+        assertNull(c.state.volume); assertTrue(fake.levels.isEmpty()); assertEquals(1, fake.queries)
+        val oldReceiver = fake.receiver!!
+        c.stop()
+        oldReceiver.dispatchMessage(Message.obtain().apply { what = ReverseProtocol.STATE_CHANNEL; arg1 = 1 })
+        assertEquals(2, seen.size); assertNull(c.state.reverseListening)
+    }
     @Test fun unsupportedDeviceNeverLoadsVendorFramework() {
         val c = TopwayAudioController({ error("must not load TW") })
         c.start(false); assertNull(c.state.volume); assertFalse(c.setFraction(0.5f)); c.stop()

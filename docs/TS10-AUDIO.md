@@ -49,3 +49,15 @@ The test APK uses `com.glasscar.launcher.ts10test`, so it can coexist with both 
 4. Copy the diagnostic report. Also report whether the wheel and GlassCar now adjust the same volume.
 
 This build does not resolve Google Maps/Tlink embedding, DVR access or CAN instrumentation. Those require their own analysis and device validation.
+
+
+## Brightness (4.7 addendum, static evidence only)
+
+The backlight is owned by the MCU, like the volume. `Settings.System.SCREEN_BRIGHTNESS` does not move the panel.
+
+- Write: `TWUtil.write(516, mode, value, null)` as in SystemUI `QSPanelBrightness$1.onProgressChanged` through `TWSystemUI.write(I I I)`. `value` is 0..10 (`initBrightValue` calls `SeekBar.setMax(10)`); GlassCar only sends 1..10.
+- `mode` selects the level being written: `nightMode` when blmode is 0 (automatic), 0 when blmode is 1 (day), 1 when blmode is 2 (night).
+- Read `what` 516: `arg1 == 1` night, `arg2 and 255` day level, `(arg2 shr 8) and 255` night level. Query `write(516, 255)`.
+- Read `what` 258 (0x102): `arg2` is blmode. Query `write(258, 255)`.
+- TWService class `x` (cases 0x204 and 0x102) and `TWService.Qa` (brightness key, cycles 10, 5, 1) use the same table.
+- GlassCar implementation: `TopwayBrightness.kt` and `TopwayAudioController.setBrightnessFraction`, on the single TWUtil connection. Hardware test still required.

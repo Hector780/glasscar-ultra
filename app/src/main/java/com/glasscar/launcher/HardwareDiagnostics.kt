@@ -38,6 +38,7 @@ object HardwareDiagnostics {
         val audio = context.getSystemService(AudioManager::class.java)
         appendLine("STREAM_MUSIC: ${audio?.getStreamVolume(AudioManager.STREAM_MUSIC)}/${audio?.getStreamMaxVolume(AudioManager.STREAM_MUSIC)} · fijo: ${audio?.isVolumeFixed}")
         appendLine(TopwayAudio.report())
+        appendLine(ReverseSignal.diagnostics())
         appendLine("Brillo Android: ${Settings.System.getInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS, -1)}/255 · permiso escritura: ${Settings.System.canWrite(context)}")
         appendLine("Modo brillo: ${Settings.System.getInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS_MODE, -1)} (0 manual / 1 automático)")
         val now = SystemClock.elapsedRealtime()

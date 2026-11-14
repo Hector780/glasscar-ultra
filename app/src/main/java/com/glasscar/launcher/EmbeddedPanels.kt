@@ -7,15 +7,24 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -184,14 +193,13 @@ private fun GoogleLiveMap(drive: DriveState, follow: Boolean, modifier: Modifier
 }
 
 @Composable
-fun CameraPanel(config: LauncherConfig, apps: List<AppEntry>, actions: LauncherActions, onConfigure: (String) -> Unit,
-    permissionVersion: Int, modifier: Modifier) {
+internal fun CameraPanel(config: LauncherConfig, apps: List<AppEntry>, actions: LauncherActions, onConfigure: (String) -> Unit,
+    permissionVersion: Int, modifier: Modifier, source: CameraSource = CameraSource.FRONT,
+    onSource: ((CameraSource) -> Unit)? = null) {
     if (BuildConfig.REAL_APP_EMBEDDING) {
-        Column(modifier) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                SmallAction("Cámara trasera · original", actions::openRearCamera)
-            }
-            RealAppPanel("com.williexing.android.apps.xcdvr1", "HD Car DVR", Modifier.weight(1f).fillMaxWidth())
+        // 4.7: no separate row. The DVR owns the whole panel and the selector floats over the video.
+        EmbeddedCameraPanel(source, onSource, ReverseSignal.state.active == true, modifier) {
+            RealAppPanel("com.williexing.android.apps.xcdvr1", "HD Car DVR", Modifier.fillMaxSize())
         }
         return
     }
@@ -236,6 +244,72 @@ fun CameraPanel(config: LauncherConfig, apps: List<AppEntry>, actions: LauncherA
             }
         }
     }
+}
+
+/**
+ * 4.7: front (DVR) video at full panel size with the front/rear selector as an overlay capsule.
+ * The front content stays composed under the rear state, so the DVR session and its recording continue.
+ */
+@Composable
+internal fun EmbeddedCameraPanel(source: CameraSource, onSource: ((CameraSource) -> Unit)?, reverseActive: Boolean,
+    modifier: Modifier, front: @Composable () -> Unit) {
+    Box(modifier) {
+        front()
+        if (source == CameraSource.REAR) RearCameraState(reverseActive, Modifier.fillMaxSize())
+        if (onSource != null) CameraSourceCapsule(source, onSource, Modifier.align(Alignment.TopEnd).padding(10.dp))
+    }
+}
+
+/** Discreet capsule over the video. Each option keeps a 48 dp touch target. */
+@Composable
+internal fun CameraSourceCapsule(current: CameraSource, onSelect: (CameraSource) -> Unit, modifier: Modifier = Modifier) {
+    val outer = RoundedCornerShape(28.dp)
+    Row(modifier.clip(outer).background(Color(0xCC10151E)).border(1.dp, Color(0x40FFFFFF), outer).padding(4.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        listOf(CameraSource.FRONT to "Frontal", CameraSource.REAR to "Trasera").forEach { option ->
+            val active = option.first == current
+            Box(Modifier.heightIn(min = 48.dp).widthIn(min = 92.dp).clip(RoundedCornerShape(24.dp))
+                .background(if (active) Color(0xE6FFFFFF) else Color.Transparent)
+                .semantics {
+                    contentDescription = if (option.first == CameraSource.FRONT) "Cámara frontal" else "Cámara trasera"
+                    selected = active
+                }
+                .bounceClick { onSelect(option.first) }.padding(horizontal = 16.dp),
+                contentAlignment = Alignment.Center) {
+                Txt(option.second, 15.sp, FontWeight.SemiBold, color = if (active) Color(0xFF10151E) else Color.White)
+            }
+        }
+    }
+}
+
+/**
+ * Honest in-panel state for the rear camera. GlassCar has no verified way to show the analog reverse input
+ * itself (docs/CAMERA-INVESTIGATION.md, section 4.7), so it explains the limit instead of opening the OEM app.
+ */
+@Composable
+internal fun RearCameraState(reverseActive: Boolean, modifier: Modifier) {
+    Column(modifier.background(Color(0xF20B0F16))
+        .semantics { contentDescription = "Estado de la cámara trasera" }
+        // Touches on this state must not reach the DVR underneath.
+        .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }
+        .padding(horizontal = 32.dp, vertical = 20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        GlyphIcon(Glyph.Camera, Modifier.size(44.dp), Color(0xCCFFFFFF))
+        Spacer(Modifier.height(12.dp))
+        Txt("Cámara trasera", 22.sp, FontWeight.SemiBold, color = Color.White)
+        Spacer(Modifier.height(8.dp))
+        PanelNote(if (reverseActive) "Reversa detectada. El estéreo muestra su cámara original a pantalla completa."
+            else "Sin imagen fuera de reversa. El estéreo solo entrega la señal de la cámara trasera a su propia pantalla de reversa.",
+            Color(0xE6FFFFFF))
+        Spacer(Modifier.height(6.dp))
+        PanelNote("La cámara frontal sigue activa; toca Frontal para volver a verla.", Color(0x99EBEBF5))
+    }
+}
+
+@Composable
+private fun PanelNote(text: String, color: Color) {
+    BasicText(text, Modifier.widthIn(max = 520.dp),
+        style = TextStyle(color = color, fontSize = 15.sp, textAlign = TextAlign.Center))
 }
 
 @Composable

@@ -62,3 +62,26 @@ Fuentes primarias para las APIs públicas: [USB host](https://developer.android.
 ## Validación
 
 Ejecutar `testDebugUnitTest lintDebug assembleDebug assembleRelease assembleReview assembleCameradiag` en GitHub Actions. Las nuevas pruebas corren en API 29 y 34: diferencian el ID DVR de otros almacenamientos, evitan afirmar imagen/UVC sin prueba, conservan evidencia de dispositivos compuestos y soportan ausencia de servicio/dispositivos/permisos/apps. No validan imagen real ni firmware. Consultar el último run de la rama `work/camera-investigation` para el estado definitivo.
+
+
+## Actualización 4.7 (13 nov 2026): señal real de reversa y trasera dentro del panel
+
+Inspección estática de `apks_topway/com.tw.service.apk` (20210731) y de `work/reverse-inspection/` (com.tw.reverse TS10_eclipse.20230104). No se ejecutó ningún APK ni se tocó el estéreo.
+
+### Señal de reversa
+
+- `com.tw.service.x.handleMessage`, caso `0x9f1c` (offset 0x0aca): si `persist.reverse.vr` es 0, compara `arg1` con `TWService.ta`; si cambió, guarda el valor, reprograma el mensaje 0xfffe y difunde `com.unisound.intent.action.DO_UNMUTE` / `DO_MUTE` con los extras enteros `call` y `reverse` (offsets 0x0cfa–0x0d76). La misma difusión sale también desde el offset 0x22c2 y desde la clase `I`, siempre con `reverse = ta`.
+- El caso 0xfffe publica el runnable `com.tw.service.g`: si `ta != 0`, abre `com.tw.reverse/.ReverseActivity` y escribe `Settings.System revserse_status = 1`. No hay ninguna escritura a 0 en TWService ni en com.tw.reverse, lo que explica que ese ajuste se quede en 1.
+- El TWUtil de TWService (clase `ca`) abre, entre otros, 0x020b y 0x9f1c; el manejador `x` solo tiene caso para 0x9f1c.
+- `ReverseActivity$1.handleMessage` trata `0x20b` y `0x9f1c` igual: `arg1 == 1` limpia `iskeypad` y dibuja las líneas; `arg1 == 0` cierra la actividad salvo en vista manual (`iskeypad == 1`).
+- No hay consulta del estado (`write(canal, 0xff)`) para ninguno de los dos canales. GlassCar 4.7 solo escucha.
+
+### Trasera dentro del panel
+
+- `ReverseActivity.openCamera`: `SystemProperties.set("sys.camera.ch", "0")` y `android.hardware.Camera.open(cameraId)`; `initCameraId` usa 0 en firmware TS10 y 1 en TS18. `onResume` escribe TW `0x10a/0xff` y `0x304/1`; `onPause` cierra la cámara y escribe `0x304/0`. `getSignal` consulta `write(0x9f1d)`.
+- GlassCar no puede fijar `sys.camera.ch` como app normal y no envía `0x304` porque su efecto no está identificado.
+- En IMG_0612 la app OEM abierta a mano fuera de reversa se ve negra aun con esos pasos. Hipótesis principal: la cámara solo recibe alimentación con la luz de reversa. Falta confirmarlo en el cableado.
+- No se incrusta `com.tw.reverse`: es `singleInstance` y TWService la abre en reversa real. Dentro de un display virtual, la reversa real la mostraría en el panel y no a pantalla completa.
+- Estado en 4.7: al elegir Trasera, el panel muestra un estado breve y el DVR sigue compuesto debajo. En reversa real la cámara OEM conserva su prioridad.
+
+Siguiente diagnóstico útil (solo lectura): con R puesta, copiar el bloque «Reversa» y «Cámaras Android» del diagnóstico de GlassCar, y revisar de dónde toma corriente la cámara trasera.

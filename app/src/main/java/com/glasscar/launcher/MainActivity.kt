@@ -47,6 +47,16 @@ class MainActivity : ComponentActivity(), LauncherActions {
             ProjectionCalls.vendorStatus(intent.action, intent.getStringExtra("status"))
         }
     }
+    // 4.7: TWService attaches its reverse flag to this broadcast on every change (class x, what 0x9f1c).
+    // Registered for the whole Activity life so the exit from reverse is seen while the OEM camera covers GlassCar.
+    private var reverseReceiverRegistered = false
+    private val reverseReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.hasExtra(ReverseProtocol.BROADCAST_EXTRA)) {
+                ReverseSignal.report(ReverseSource.TW_BROADCAST, intent.getIntExtra(ReverseProtocol.BROADCAST_EXTRA, -1))
+            }
+        }
+    }
 
     private val permissionRequest = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         permissionVersion.intValue++
@@ -70,6 +80,20 @@ class MainActivity : ComponentActivity(), LauncherActions {
                 carPlayRequest = carPlayRequest.intValue, volumeKeyEvent = volumeKeyEvent.intValue)
         }
         permissionRequest.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+        val reverseFilter = IntentFilter(ReverseProtocol.BROADCAST_MUTE)
+        reverseFilter.addAction(ReverseProtocol.BROADCAST_UNMUTE)
+        runCatching {
+            ContextCompat.registerReceiver(this, reverseReceiver, reverseFilter, ContextCompat.RECEIVER_EXPORTED)
+            reverseReceiverRegistered = true
+        }
+    }
+
+    override fun onDestroy() {
+        if (reverseReceiverRegistered) {
+            runCatching { unregisterReceiver(reverseReceiver) }
+            reverseReceiverRegistered = false
+        }
+        super.onDestroy()
     }
 
     override fun onStart() {
@@ -189,6 +213,12 @@ class MainActivity : ComponentActivity(), LauncherActions {
         if (!HeadUnitControls.openNativePanel(this)) toast("Abre el panel superior del estéreo para ajustar sus controles")
     }
     override fun setBrightness(fraction: Float) {
+        // 4.7: on the TS10 the backlight belongs to the MCU (TW 516). Settings.System does not move the panel,
+        // so it is never written there as if it were the solution.
+        if (TopwayAudio.controller.state.connected) {
+            TopwayAudio.controller.setBrightnessFraction(fraction)
+            return
+        }
         if (HeadUnitControls.setBrightness(this, window, fraction)) return
         if (!Settings.System.canWrite(this) && !askedWriteSettings) {
             askedWriteSettings = true
