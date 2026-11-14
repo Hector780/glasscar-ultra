@@ -59,7 +59,26 @@ Extraer al menos dos fotogramas por segundo; más alrededor de transiciones y te
 
 ## Resultado de compilación y APK
 
-El bloque final se completa tras la validación y descarga de CI. El resultado local se guarda en `work/glasscar-4.6-build.log`; la entrega incluye `INSTALAR_DESPUES/LEEME-4.6.txt` y APK separados local/CI. No tomar el APK anterior sin commit como entrega definitiva.
+El resultado final de CI y la entrega están documentados más abajo. El resultado local se guarda en `work/glasscar-4.6-build.log`; la entrega incluye `INSTALAR_DESPUES/LEEME-4.6.txt` y APK separados local/CI. No tomar el APK anterior sin commit como entrega definitiva.
 
 
-Validación local final de esta revisión: `tools/Compilar-4.6.ps1` → BUILD SUCCESSFUL; 95 pruebas, 0 fallos/errores/omitidas; lint 0 errores, 80 advertencias, 1 información. APK local code10 firmado y verificado; SHA-256 `e38aafb52172830fb1aee830928bb211eb002d67db8fbf62d63f941dbc30a17f`. El bloque de CI se añadirá al terminar la publicación.
+Validación local final de esta revisión: `tools/Compilar-4.6.ps1` → BUILD SUCCESSFUL; 95 pruebas, 0 fallos/errores/omitidas; lint 0 errores, 80 advertencias, 1 información. APK local code10 firmado y verificado; SHA-256 `e38aafb52172830fb1aee830928bb211eb002d67db8fbf62d63f941dbc30a17f`. Ver el resultado de CI a continuación.
+
+
+## Resultado final publicado de 4.6
+
+- Código compilado: `ee070248c1a902b9e9f3abf1b5185030751e524c` en `work/topway-carinfo`.
+- [GitHub Actions 43531075891: SUCCESS](https://github.com/Hector780/glasscar-ultra/actions/runs/43531075891). Reporte descargado: 95 tests, 0 fallos/errores/omitidas; lint 0 errores, 81 advertencias, 1 información. Local: mismas 95 pruebas y 0 errores de lint (80 advertencias, 1 información).
+- Se descargó el artefacto ID14086614667, SHA-256 ZIP `a33365f2b8fa9facfe4a4adc49017a2c7586e642f10343d731336fdd14b3f641`, y se extrajo **exactamente embedding/app-embedding.apk**.
+- Ambos APK verificados por aapt/apksigner: `.embedtest`, code10, `4.6-ts10-integrated-real-app-prototype`.
+
+| Archivo en INSTALAR_DESPUES | SHA-256 APK | SHA-256 certificado |
+|---|---|---|
+| GlassCar-Ultra-4.6-local-embedding.apk (recomendado para continuidad de firma local) | `e38aafb52172830fb1aee830928bb211eb002d67db8fbf62d63f941dbc30a17f` | `6a2cb5763f9f5de3ec92f9487a3d02b0ed1aa693d4b0f072cca138a57b531a7b` |
+| GlassCar-4.6-ee07024-CI.apk | `99a95fc258733c10ba4d41a40daf06a493d630948cd5906254421b34658e3cc0` | `abfb317816efb622035806e5cb890c709a6162c230140f3d719f29a924580263` |
+
+**Las dos firmas difieren de CI4.5 (`b0a3b465...`).** Si `.embedtest` instalado tiene aquella firma, ni local4.6 ni CI4.6 actualizan encima. Si lo instalado es `.cameradiag`, son paquetes distintos y pueden coexistir. No se comprobó el paquete instalado ni se desinstaló nada. El LEEME explica conservar ajustes y la clave local privada; no se publicaron claves ni credenciales.
+
+Se corrigieron los nombres de APK previos en INSTALAR_DESPUES conservando los archivos: el falso «4.5 embedding» ahora se llama `GlassCar-4.5-cameradiag-ARCHIVO-ANTES-MAL-NOMBRADO.apk`; el verdadero4.5 queda como referencia. La 4.6 previa sin commit quedó marcada `PREVIA-SIN-COMMIT`. La entrega vigente está en `LEEME-4.6.txt`.
+
+El siguiente commit sólo documenta esta entrega y usa `[skip ci]`: no modifica el código del APK validado. Continuar con los videos en el otro chat; no rehacer el overlay de volumen ni presentar la continuidad DVR/CAN/llamadas como probadas físicamente.
