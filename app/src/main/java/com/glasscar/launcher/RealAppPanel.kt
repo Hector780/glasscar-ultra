@@ -30,6 +30,7 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
@@ -56,13 +57,14 @@ object EmbeddingReport {
 
 @Composable
 fun RealAppPanel(target: String, title: String, modifier: Modifier,
-    expanded: Boolean = false, onExpand: (() -> Unit)? = null) {
+    expanded: Boolean = false, onExpand: (() -> Unit)? = null, hostSize: IntSize = IntSize.Zero) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val store = LocalEmbeddedSessions.current
     val controller = remember(target, store) { store?.session(target) ?: RealAppController(context, target) }
     EmbeddedPanelFrame(title, controller.status, modifier, controller::start, expanded, onExpand) {
         AndroidView(factory = { TextureView(it).also(controller::attach) }, modifier = Modifier.fillMaxSize(),
+            update = { controller.setHostSize(hostSize) },
             onRelease = controller::detach)
     }
     DisposableEffect(controller, lifecycle) {
@@ -110,6 +112,12 @@ internal fun EmbeddedPanelFrame(title: String, status: EmbeddedPanelStatus, modi
     }
 }
 
+/** Tlink starts in an offscreen pager page: its viewport is not the eventual fullscreen display. */
+internal fun embeddedDisplaySize(target: String, viewport: IntSize, host: IntSize): IntSize? {
+    val size = if (target == "com.zjinnova.zlink") host else viewport
+    return size.takeIf { it.width >= 64 && it.height >= 64 }
+}
+
 internal class RealAppController(private val context: Context, private val target: String) : TextureView.SurfaceTextureListener {
     var status by mutableStateOf(EmbeddedPanelStatus())
         private set
@@ -121,6 +129,7 @@ internal class RealAppController(private val context: Context, private val targe
     private var retainedTexture: SurfaceTexture? = null
     private var bufferWidth = 0
     private var bufferHeight = 0
+    private var hostSize = IntSize.Zero
     private var launches = 0
     private var remote: IEmbeddedAppService? = null
     private var connection: ServiceConnection? = null
@@ -155,7 +164,15 @@ internal class RealAppController(private val context: Context, private val targe
 
     private fun reportSession(text: String) {
         EmbeddingReport.record(target, "$text · inicios=$launches · display=${display?.display?.displayId ?: -1}" +
-            " · buffer=${bufferWidth}x$bufferHeight · superficie=${retainedTexture?.isReleased == false}")
+            " · buffer=${bufferWidth}x$bufferHeight · vista=${view?.width ?: 0}x${view?.height ?: 0}" +
+            " · superficie=${retainedTexture?.isReleased == false}")
+    }
+
+    fun setHostSize(size: IntSize) {
+        if (hostSize == size) return
+        hostSize = size
+        // The first root measurement unblocks Tlink. Existing sessions are never restarted by layout changes.
+        if (target == "com.zjinnova.zlink" && display == null) start()
     }
 
     fun setActive(value: Boolean) {
@@ -199,6 +216,7 @@ internal class RealAppController(private val context: Context, private val targe
         val texture = view
         val image = texture?.surfaceTexture
         if (texture == null || image == null || texture.width < 64 || texture.height < 64) return
+        val size = embeddedDisplaySize(target, IntSize(texture.width, texture.height), hostSize) ?: return
         if (Build.VERSION.SDK_INT != 29) { tell("La integración requiere el Android 10 del estéreo"); return }
         if (!context.packageManager.hasSystemFeature(PackageManager.FEATURE_ACTIVITIES_ON_SECONDARY_DISPLAYS)) {
             tell("El firmware no declara soporte para apps en pantallas secundarias"); return
@@ -215,7 +233,7 @@ internal class RealAppController(private val context: Context, private val targe
             @Suppress("DEPRECATION")
             val info = context.packageManager.getActivityInfo(component, 0)
             if (!info.enabled || !info.exported) { tell("La actividad seleccionada no está disponible"); return }
-            val width = texture.width; val height = texture.height
+            val width = size.width; val height = size.height
             image.setDefaultBufferSize(width, height)
             retainedTexture = image
             bufferWidth = width; bufferHeight = height
@@ -349,13 +367,20 @@ internal class RealAppController(private val context: Context, private val targe
         val previous = retainedTexture
         if (previous != null && previous !== surface && !previous.isReleased) view?.setSurfaceTexture(previous)
         else retainedTexture = surface
+        restoreCarPlayBuffer()
         start()
         reportSession(if (ready) "Sesión conservada" else status.message)
     }
     override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
         if (width < 64 || height < 64) return
         // Scale the retained buffer and map touch coordinates, avoiding guest activity recreation.
-        if (display == null) start()
+        if (display == null) start() else restoreCarPlayBuffer()
+    }
+    private fun restoreCarPlayBuffer() {
+        // TextureView changes the default buffer size with its bounds. Keep the buffer and virtual display
+        // at the same fullscreen dimensions, including while Tlink is hidden behind another tab/the drawer.
+        if (target == "com.zjinnova.zlink" && display != null && bufferWidth >= 64 && bufferHeight >= 64)
+            retainedTexture?.setDefaultBufferSize(bufferWidth, bufferHeight)
     }
     override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
         if (disposed) return true

@@ -26,6 +26,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -314,9 +315,9 @@ private fun PanelNote(text: String, color: Color) {
 
 @Composable
 fun CarPlayPanel(config: LauncherConfig, apps: List<AppEntry>, actions: LauncherActions, onConfigure: (String) -> Unit,
-    modifier: Modifier) {
+    modifier: Modifier, hostSize: IntSize = IntSize.Zero) {
     if (BuildConfig.REAL_APP_EMBEDDING) {
-        RealAppPanel("com.zjinnova.zlink", "Tlink5", modifier)
+        RealAppPanel("com.zjinnova.zlink", "Tlink5", modifier, hostSize = hostSize)
         return
     }
     val app = resolveApp(apps, config, "carplay", QuickShortcuts[6])

@@ -92,6 +92,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -366,7 +367,8 @@ private fun LauncherContent(
                                 0 -> if (keepAlive || pager.settledPage == 0) Dashboard(drive, speed, gear, manualGear != null, { manualGear = it }, { manualGear = null },
                                     media, weather, apps, status, actions, config, configure, can, permissionVersion,
                                     mapExpanded, { mapExpanded = !mapExpanded }, { scope.launch { pager.scrollToPage(1) } })
-                                1 -> if (keepAlive || pager.settledPage == 1) CarPlayPanel(config, apps, actions, configure, Modifier.fillMaxSize())
+                                1 -> if (keepAlive || pager.settledPage == 1) CarPlayPanel(config, apps, actions, configure, Modifier.fillMaxSize(),
+                                    hostSize = IntSize(rootSize.width.toInt(), rootSize.height.toInt()))
                                 2 -> if (keepAlive || pager.settledPage == 2) CameraPanel(config, apps, actions, configure, permissionVersion, Modifier.fillMaxSize(),
                                     source = cameraSource, onSource = { cameraSource = it })
                                 3 -> ClusterCard(drive, speed, gear, manualGear != null, { manualGear = it }, { manualGear = null },
